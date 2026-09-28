@@ -2,7 +2,8 @@
  * Phase 4 hub Coulomb grip: contact + drive at axle hubs.
  * Soft hub spheres = only vertical plant. Coilovers = ride height. Links = locate.
  * No chassis-ray spring and no ray normal impulse (would double-plant / self-push).
- * Fn for μ·Fn is a weight/penetration estimate only. Reverse steer yaws the tail.
+ * Fn for μ·Fn is a weight/penetration estimate only. Reverse steer yaws the tail.\n * Longitudinal Coulomb along contact tangent (includes uphill) restores climb;
+ * planar COM motor is a flat-drive assist. Forward face probe aids vertical lips.
  */
 import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
@@ -158,6 +159,54 @@ function castHubSupport(
   return { toi: hit.timeOfImpact, nx, ny, nz, support };
 }
 
+
+/**
+ * Forward face probe for vertical-face / lip traction when the down-ray rejects
+ * steep normals, or a wall sits ahead of the tread.
+ */
+function castHubFace(
+  world: RAPIER.World,
+  hub: THREE.Vector3,
+  radius: number,
+  axleBody: RAPIER.RigidBody,
+  fx: number,
+  fy: number,
+  fz: number,
+  gx: number,
+  gy: number,
+  gz: number
+): { toi: number; nx: number; ny: number; nz: number; support: number } | null {
+  const fLen = Math.hypot(fx, fy, fz);
+  if (fLen < 1e-6) return null;
+  const ux = fx / fLen;
+  const uy = fy / fLen;
+  const uz = fz / fLen;
+  const ray = new RAPIER.Ray(
+    { x: hub.x, y: hub.y, z: hub.z },
+    { x: ux, y: uy, z: uz }
+  );
+  const hit = world.castRayAndGetNormal(ray, radius * 1.35, false, undefined, undefined, undefined, axleBody);
+  if (!hit) return null;
+  if (hit.timeOfImpact > radius * 1.15) return null;
+  let nx = hit.normal.x;
+  let ny = hit.normal.y;
+  let nz = hit.normal.z;
+  const nLen = Math.hypot(nx, ny, nz);
+  if (nLen < 1e-6) return null;
+  nx /= nLen;
+  ny /= nLen;
+  nz /= nLen;
+  if (nx * ux + ny * uy + nz * uz > 0) {
+    nx = -nx;
+    ny = -ny;
+    nz = -nz;
+  }
+  const gMag = Math.hypot(gx, gy, gz) || 9.81;
+  const support = -(nx * gx + ny * gy + nz * gz) / gMag;
+  if (support < -0.15) return null;
+  return { toi: hit.timeOfImpact, nx, ny, nz, support: Math.max(0, support) };
+}
+
 function frictionLimit(contact: HubContact, maxForce: number): number {
   return Math.min(contact.wheel.mu * contact.grip * contact.fn, maxForce);
 }
@@ -183,6 +232,23 @@ function tangentVelocity(
     vLat: tpx * contact.sx + tpy * contact.sy + tpz * contact.sz,
     vChassis: tpx * contact.cx + tpy * contact.cy + tpz * contact.cz,
   };
+}
+
+
+function applyAxisImpulse(
+  chassis: RAPIER.RigidBody,
+  contact: HubContact,
+  ax: number,
+  ay: number,
+  az: number,
+  impulse: number
+): void {
+  if (impulse === 0) return;
+  chassis.applyImpulseAtPoint(
+    { x: ax * impulse, y: ay * impulse, z: az * impulse },
+    { x: contact.px, y: contact.py, z: contact.pz },
+    true
+  );
 }
 
 function applyLateral(
@@ -280,7 +346,9 @@ function solveContact(
   chassis: RAPIER.RigidBody,
   contact: HubContact,
   maxForce: number,
+  commandSpeed: number,
   steerInput: number,
+  motorCap: number,
   rollScale: number,
   reversing: boolean,
   gx: number,
@@ -292,6 +360,19 @@ function solveContact(
   const slip = tangentVelocity(chassis, contact, gx, gy, gz, dt);
   const steerShare = wheel.steered && steerInput !== 0 && !reversing ? 0.35 : 0;
   const maxFric = frictionLimit(contact, maxForce) * dt * (1 - steerShare);
+
+  // Longitudinal along contact tangent (tx includes uphill on ramps/faces).
+  const driveStraight = reversing && wheel.steered;
+  const vDrive = driveStraight ? slip.vChassis : slip.vLong;
+  const targetLong = wheel.driven ? commandSpeed : vDrive;
+  const driveInv = driveStraight ? contact.invChassis : contact.invLong;
+  const motor = Math.min(motorCap, maxFric);
+  const wantLong = clampImpulse(
+    (-(vDrive - targetLong) / driveInv) * FRICTION_RELAX,
+    -motor - contact.accLong,
+    motor - contact.accLong
+  );
+
   const latGrip = (reversing && wheel.steered ? 0.3 : 1) * contact.gripIn;
   const latRoom = maxFric * Math.max(0.15, rollScale) * latGrip;
   const wantLat = clampImpulse(
@@ -299,7 +380,22 @@ function solveContact(
     -latRoom - contact.accLat,
     latRoom - contact.accLat
   );
-  const nextLat = clampImpulse(contact.accLat + wantLat, -latRoom, latRoom);
+
+  let nextLong = contact.accLong + wantLong;
+  let nextLat = clampImpulse(contact.accLat + wantLat, -latRoom, latRoom);
+  const mag = Math.hypot(nextLong, nextLat);
+  if (mag > maxFric && mag > 1e-8) {
+    const scale = maxFric / mag;
+    nextLong *= scale;
+    nextLat *= scale;
+  }
+  nextLong = clampImpulse(nextLong, -motor, motor);
+
+  const driveX = driveStraight ? contact.cx : contact.tx;
+  const driveY = driveStraight ? contact.cy : contact.ty;
+  const driveZ = driveStraight ? contact.cz : contact.tz;
+  applyAxisImpulse(chassis, contact, driveX, driveY, driveZ, nextLong - contact.accLong);
+  contact.accLong = nextLong;
   applyLateral(chassis, contact, contact.sx, contact.sy, contact.sz, nextLat - contact.accLat);
   contact.accLat = nextLat;
 }
@@ -369,30 +465,30 @@ export function applyHubDrive(
 
   const contacts: HubContact[] = [];
   const weight = chassis.mass() * gMag;
+  const wantProbe =
+    input.throttle !== 0 || Math.abs(state.commandSpeed) > 0.05;
 
-  for (const wheel of hubWheels) {
+  basis.set(0, 0, -1).applyQuaternion(q);
+  const faceFx = basis.x;
+  const faceFy = basis.y;
+  const faceFz = basis.z;
+
+  const pushHit = (
+    wheel: HubWheel,
+    hit: { toi: number; nx: number; ny: number; nz: number; support: number },
+    faceBoost: boolean
+  ): void => {
     const hub = hubWorldPosition(wheel.axle, wheel.def.hubOffset);
-    const supportHit = castHubSupport(
-      world,
-      hub,
-      wheel.radius,
-      wheel.axle.body,
-      gx,
-      gy,
-      gz,
-      drive.minNormalY
-    );
-    if (!supportHit) continue;
-
-    // Fn estimate only — sphere owns the normal plant; never push along the ray.
-    const penet = Math.max(0, wheel.radius - supportHit.toi);
+    const penet = Math.max(0, wheel.radius - hit.toi);
     const share = weight / Math.max(1, hubWheels.length);
-    const fn = Math.min(share * 1.1 * supportHit.support + penet * 180, share * 1.6);
-    if (fn <= 1e-3) continue;
+    // Steep/face contacts get little weight·support — penetration floor keeps μFn alive.
+    const supportFn = share * 1.1 * Math.max(hit.support, faceBoost ? 0.35 : 0);
+    const fn = Math.min(supportFn + penet * 220, share * (faceBoost ? 2.2 : 1.6));
+    if (fn <= 1e-3) return;
 
-    const nx = supportHit.nx;
-    const ny = supportHit.ny;
-    const nz = supportHit.nz;
+    const nx = hit.nx;
+    const ny = hit.ny;
+    const nz = hit.nz;
     const px = hub.x - nx * wheel.radius;
     const py = hub.y - ny * wheel.radius;
     const pz = hub.z - nz * wheel.radius;
@@ -404,7 +500,7 @@ export function applyHubDrive(
     let cy = basis.y - ny * chassisInto;
     let cz = basis.z - nz * chassisInto;
     const cLen = Math.hypot(cx, cy, cz);
-    if (cLen < 1e-5) continue;
+    if (cLen < 1e-5) return;
     cx /= cLen;
     cy /= cLen;
     cz /= cLen;
@@ -415,7 +511,7 @@ export function applyHubDrive(
     let ty = basis.y - ny * into;
     let tz = basis.z - nz * into;
     const tLen = Math.hypot(tx, ty, tz);
-    if (tLen < 1e-5) continue;
+    if (tLen < 1e-5) return;
     tx /= tLen;
     ty /= tLen;
     tz /= tLen;
@@ -424,12 +520,15 @@ export function applyHubDrive(
     let sy = nz * tx - nx * tz;
     let sz = nx * ty - ny * tx;
     const sLen = Math.hypot(sx, sy, sz);
-    if (sLen < 1e-5) continue;
+    if (sLen < 1e-5) return;
     sx /= sLen;
     sy /= sLen;
     sz /= sLen;
 
     const gripIn = 0.55 + 0.45 * clampImpulse(1 - penet / Math.max(1e-3, wheel.radius * 0.15), 0, 1);
+    const gripSupport = faceBoost
+      ? Math.max(hit.support, drive.minNormalY + 0.05)
+      : hit.support;
     contacts.push({
       wheel,
       fn,
@@ -453,9 +552,57 @@ export function applyHubDrive(
       invLat: invMassAlong(chassis, px, py, pz, sx, sy, sz),
       accLong: 0,
       accLat: 0,
-      grip: gripFromSupport(supportHit.support, drive.minNormalY),
+      grip: Math.max(0.35, gripFromSupport(gripSupport, drive.minNormalY)),
       gripIn,
     });
+  };
+
+  for (const wheel of hubWheels) {
+    const hub = hubWorldPosition(wheel.axle, wheel.def.hubOffset);
+    const supportHit = castHubSupport(
+      world,
+      hub,
+      wheel.radius,
+      wheel.axle.body,
+      gx,
+      gy,
+      gz,
+      drive.minNormalY
+    );
+    if (supportHit) {
+      pushHit(wheel, supportHit, false);
+    } else if (wantProbe) {
+      const faceHit = castHubFace(
+        world,
+        hub,
+        wheel.radius,
+        wheel.axle.body,
+        faceFx,
+        faceFy,
+        faceFz,
+        gx,
+        gy,
+        gz
+      );
+      if (faceHit) pushHit(wheel, faceHit, true);
+    }
+
+    // Front lip: while planted, grab steep face ahead for curb/ramp crest.
+    if (wantProbe && wheel.steered && supportHit && supportHit.support > 0.8) {
+      const faceHit = castHubFace(
+        world,
+        hub,
+        wheel.radius,
+        wheel.axle.body,
+        faceFx,
+        faceFy,
+        faceFz,
+        gx,
+        gy,
+        gz
+      );
+      if (faceHit && faceHit.support < 0.6) pushHit(wheel, faceHit, true);
+    }
   }
 
   if (contacts.length === 0) return;
@@ -491,8 +638,10 @@ export function applyHubDrive(
     state.commandSpeed >= 0
       ? clampImpulse(frontFn / planted, 0, 1)
       : clampImpulse(rearFn / planted, 0, 1);
-  void drivenContacts;
   const rollScale = rollAuthority(contacts, weight);
+  const perWheelCap =
+    (drive.maxAccel * Math.max(0.5, chassis.mass()) * dt * Math.max(0.45, driveScale) * 1.35) /
+    Math.max(1, drivenContacts);
 
   basis.set(0, 0, -1).applyQuaternion(q);
   const lin = chassis.linvel();
@@ -525,12 +674,37 @@ export function applyHubDrive(
       const vLong = lin.x * fx + lin.y * fy + lin.z * fz;
       const err = state.commandSpeed - vLong;
       const mass = Math.max(0.5, chassis.mass());
+      // Planar COM assist for flat drive; hub long Coulomb along tx supplies climb.
       const motorCap = Math.min(
-        drive.maxAccel * mass * dt * Math.max(0.4, driveScale),
-        drive.maxForce * dt
+        drive.maxAccel * mass * dt * Math.max(0.35, driveScale) * 0.7,
+        drive.maxForce * dt * 0.7
       );
-      const j = clampImpulse(err * mass * 0.85 * dt, -motorCap, motorCap);
+      const j = clampImpulse(err * mass * 0.75 * dt, -motorCap, motorCap);
       chassis.applyImpulse({ x: fx * j, y: fy * j, z: fz * j }, true);
+
+      // Climb boost along low-support contact tangents (uphill / vertical face).
+      let clx = 0, cly = 0, clz = 0, nClimb = 0;
+      for (const c of contacts) {
+        if (c.ny < 0.9) {
+          clx += c.tx; cly += c.ty; clz += c.tz; nClimb += 1;
+        }
+      }
+      if (nClimb > 0 && Math.abs(state.commandSpeed) > 0.05) {
+        clx /= nClimb; cly /= nClimb; clz /= nClimb;
+        const cLen = Math.hypot(clx, cly, clz);
+        if (cLen > 1e-5) {
+          clx /= cLen; cly /= cLen; clz /= cLen;
+          const vClimb = lin.x * clx + lin.y * cly + lin.z * clz;
+          const climbErr = state.commandSpeed - vClimb;
+          const climbCap = Math.min(
+            drive.maxAccel * mass * dt * Math.max(0.4, driveScale) * 0.55,
+            drive.maxForce * dt * 0.55
+          );
+          const jc = clampImpulse(climbErr * mass * 0.7 * dt, -climbCap, climbCap);
+          chassis.applyImpulse({ x: clx * jc, y: cly * jc, z: clz * jc }, true);
+        }
+      }
+
       // Phase 6: mild drive-only upright restore (anti pitch-dive; idle path unchanged).
       if (upright < 0.9 && upright > 0.4) {
         basis.set(1, 0, 0).applyQuaternion(q);
@@ -549,7 +723,9 @@ export function applyHubDrive(
         chassis,
         contact,
         drive.maxForce,
+        state.commandSpeed,
         steerCmd,
+        perWheelCap,
         rollScale,
         reversing,
         gx,

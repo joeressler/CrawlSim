@@ -34,21 +34,21 @@ const scratchX = new THREE.Vector3();
 const lookMat = new THREE.Matrix4();
 
 /** Soft WB spring between F/R axle centers (N/m, N·s/m). Mild — links still own locate. */
-const WB_K = 70;
-const WB_C = 6;
-const WB_FORCE_CAP = 9;
+const WB_K = 220;
+const WB_C = 14;
+const WB_FORCE_CAP = 36;
 
 /** Soft driveshaft length springs: chassis transfer → axle pumpkin. */
-const SHAFT_K = 55;
-const SHAFT_C = 5;
-const SHAFT_FORCE_CAP = 6;
+const SHAFT_K = 90;
+const SHAFT_C = 8;
+const SHAFT_FORCE_CAP = 12;
 
 /** Axle yaw vs chassis: soft restore past SOFT, strong past HARD (rad). */
-const YAW_SOFT = 0.14;
-const YAW_HARD = 0.5;
-const YAW_K = 3.2;
-const YAW_C = 0.55;
-const YAW_TORQUE_CAP = 0.35;
+const YAW_SOFT = 0.10;
+const YAW_HARD = 0.30;
+const YAW_K = 28;
+const YAW_C = 2.4;
+const YAW_TORQUE_CAP = 6.0;
 
 const TRANSFER_LOCAL: Vec3 = { x: 0, y: -0.034, z: 0 };
 const SHAFT_RADIUS = 0.0045;
@@ -199,9 +199,9 @@ function applyYawLimit(chassis: RAPIER.RigidBody, axle: RAPIER.RigidBody, dt: nu
     true
   );
 
-  // Near hard limit: bleed axle yaw rate so it cannot 180° spin through.
-  if (abs > YAW_HARD * 0.85) {
-    const bleed = 0.65;
+  // Near/past hard: kill yaw rate hard so impact cannot 180° the axle.
+  if (abs > YAW_HARD * 0.7) {
+    const bleed = abs > YAW_HARD ? 0.92 : 0.75;
     axle.setAngvel(
       {
         x: ang.x - scratchUp.x * omega * bleed,
@@ -210,6 +210,18 @@ function applyYawLimit(chassis: RAPIER.RigidBody, axle: RAPIER.RigidBody, dt: nu
       },
       true
     );
+  }
+
+  // Past hard band: soft-correct axle rotation toward chassis (no lock joint).
+  if (abs > YAW_HARD) {
+    const over = abs - YAW_HARD;
+    // Rate-limit so a bad reset cannot snap 90 deg in one frame.
+    const correct = Math.min(over, 0.14) * (yaw >= 0 ? -1 : 1);
+    const ar = axle.rotation();
+    const aq = new THREE.Quaternion(ar.x, ar.y, ar.z, ar.w);
+    const dq = new THREE.Quaternion().setFromAxisAngle(scratchUp, correct);
+    aq.premultiply(dq);
+    axle.setRotation({ x: aq.x, y: aq.y, z: aq.z, w: aq.w }, true);
   }
 }
 

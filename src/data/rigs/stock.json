@@ -512,7 +512,7 @@
       "maxForce": 280,
       "steerAngle": 0.48,
       "maxAccel": 10,
-      "minNormalY": 0.35,
+      "minNormalY": 0.18,
       "minUpright": 0.3
     }
   }

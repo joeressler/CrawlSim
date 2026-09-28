@@ -183,7 +183,7 @@ export function buildKitSuspension(
       RAPIER.ColliderDesc.ball(wheel.radius)
         .setTranslation(wheel.hubOffset.x, wheel.hubOffset.y, wheel.hubOffset.z)
         .setDensity(0)
-        .setFriction(0.05)
+        .setFriction(0.4)
         .setRestitution(0)
         .setCollisionGroups(HUB_GROUPS)
         .setSolverGroups(HUB_GROUPS),
@@ -226,7 +226,9 @@ export function buildKitSuspension(
   }
 
   const reset = (chassisBody: RAPIER.RigidBody): void => {
-    const rot = identityQuat();
+    // Match chassis yaw/pose — identity left axles 90 deg wrong after place() yaw.
+    const cr = chassisBody.rotation();
+    const rot = { x: cr.x, y: cr.y, z: cr.z, w: cr.w };
     for (const axle of axles.values()) {
       const p = worldFromChassis(chassisBody, axle.restLocal);
       axle.body.setTranslation(p, true);
