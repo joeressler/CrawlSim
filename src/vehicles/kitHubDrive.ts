@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Phase 4 hub Coulomb grip: contact + drive at axle hubs.
  * Soft hub spheres = only vertical plant. Coilovers = ride height. Links = locate.
  * No chassis-ray spring and no ray normal impulse (would double-plant / self-push).
@@ -531,6 +531,15 @@ export function applyHubDrive(
       );
       const j = clampImpulse(err * mass * 0.85 * dt, -motorCap, motorCap);
       chassis.applyImpulse({ x: fx * j, y: fy * j, z: fz * j }, true);
+      // Phase 6: mild drive-only upright restore (anti pitch-dive; idle path unchanged).
+      if (upright < 0.9 && upright > 0.4) {
+        basis.set(1, 0, 0).applyQuaternion(q);
+        const torque = (0.9 - upright) * 0.85 * mass * dt;
+        chassis.applyTorqueImpulse(
+          { x: basis.x * torque, y: basis.y * torque, z: basis.z * torque },
+          true
+        );
+      }
     }
   }
 

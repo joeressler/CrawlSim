@@ -1,11 +1,11 @@
-﻿/**
+/**
  * Headless autonomous crawler suite (no browser).
  *
  *   npm run crawl-test
  *
  * Gates catch explode/orbit (|v|), tip-over (upright floor), and scripted
  * progress on flat / toward ramp / at ledge. Peak progress is used because
- * long throttle runs currently pitch down after ~1–2 s (still not inverted).
+ * Phase 6: mild drive-only upright restore; crawl upright floors 0.40.
  */
 import { runIdleSettle } from "./settleKit.ts";
 import {
@@ -22,8 +22,8 @@ import {
 const MAX_SPEED = 8;
 const MIN_UPRIGHT_IDLE = 0.75;
 /** Not inverted / rolling cage — long throttle currently settles ~0.35 pitch. */
-const MIN_UPRIGHT_CRAWL = 0.28;
-const MIN_UPRIGHT_FINAL = 0.3;
+const MIN_UPRIGHT_CRAWL = 0.40;
+const MIN_UPRIGHT_FINAL = 0.40;
 
 const MIN_FLAT_PEAK = 0.08;
 const MIN_RAMP_PEAK = 0.08;
