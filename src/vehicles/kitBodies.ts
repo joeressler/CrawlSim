@@ -1,22 +1,18 @@
 /**
- * Strategy B Phase 2a: dynamic axle bodies + light link bodies with spherical
- * joints at each end (4 arms per axle + panhard when present in the BOM).
- *
- * Temporary height hold: gravityScale(0) on kit parts (no hard fixed — that would overconstrain the sphericals). No coilover forces.
- *
- * Link bodies use identity rotation with anchors = world rest offsets from the
- * link center so sphericals start at exact zero error (rest poses match mounts).
+ * Strategy B Phase 3: dynamic axle bodies + spherical link kit + soft hub plant spheres.
+ * Gravity restored on kit parts. Vertical plant = hub spheres only (no chassis-ray spring).
+ * Coilovers / hub drive live in kitCoilovers.ts + kitHubDrive.ts.
  */
 import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
-import { CHASSIS_GROUPS, KIT_PART_GROUPS } from "../physics/collisionGroups.ts";
+import { CHASSIS_GROUPS, HUB_GROUPS, KIT_PART_GROUPS } from "../physics/collisionGroups.ts";
 import { syncRigidBodyToObject } from "../physics/sync.ts";
-import type { AxleDef, KitDef, LinkDef, MountDef, MountRef, Vec3 } from "./types.ts";
+import type { AxleDef, KitDef, KitWheelDef, LinkDef, MountDef, MountRef, Vec3 } from "./types.ts";
 
-const AXLE_HALF = { x: 0.52, y: 0.035, z: 0.035 };
-const AXLE_MASS = 0.55;
+const AXLE_HALF = { x: 0.105, y: 0.016, z: 0.016 };
+const AXLE_MASS = 0.4;
 const LINK_MASS = 0.05;
-const LINK_RADIUS = 0.016;
+const LINK_RADIUS = 0.01;
 
 export type KitAxleRuntime = {
   id: string;
@@ -31,16 +27,14 @@ export type KitLinkRuntime = {
   body: RAPIER.RigidBody;
   mesh: THREE.Mesh;
   def: LinkDef;
-  /** Rest half-length along the link (for mesh scale). */
   length: number;
 };
 
 export type KitSuspensionRuntime = {
   axles: Map<string, KitAxleRuntime>;
   links: KitLinkRuntime[];
+  wheels: KitWheelDef[];
   reset: (chassis: RAPIER.RigidBody) => void;
-  /** Phase 2a temporary soft-fixed hold: weld kit parts back to rest mounts after each step. */
-  holdRestPose: (chassis: RAPIER.RigidBody) => void;
   syncMeshes: () => void;
 };
 
@@ -103,7 +97,6 @@ function chassisLocalForRef(ref: { bodyKey: string; local: Vec3 }, axles: Map<st
   return add(axle.offset, ref.local);
 }
 
-/** Orient a Z-long mesh from `from` toward `to` (visual only). */
 function meshLookRotation(from: Vec3, to: Vec3): THREE.Quaternion {
   const dir = sub(to, from);
   const length = len(dir);
@@ -125,8 +118,8 @@ function createKitCollider(world: RAPIER.World, body: RAPIER.RigidBody, desc: RA
 }
 
 /**
- * Build Strategy B kit articulation on an existing chassis rigid body.
- * Rest poses match BOM mounts exactly so sphericals start at zero error.
+ * Build Strategy B kit: axles, spherical links, soft hub plant spheres.
+ * Rest poses match BOM mounts so sphericals start at zero error.
  */
 export function buildKitSuspension(
   world: RAPIER.World,
@@ -142,7 +135,15 @@ export function buildKitSuspension(
 
   world.integrationParameters.numSolverIterations = Math.max(
     world.integrationParameters.numSolverIterations,
-    14
+    28
+  );
+  world.integrationParameters.normalizedAllowedLinearError = Math.min(
+    world.integrationParameters.normalizedAllowedLinearError,
+    0.0005
+  );
+  world.integrationParameters.normalizedAllowedLinearError = Math.min(
+    world.integrationParameters.normalizedAllowedLinearError,
+    0.0005
   );
 
   const axleDefs = new Map(kit.axles.map((a) => [a.id, a]));
@@ -161,9 +162,8 @@ export function buildKitSuspension(
         .setTranslation(worldPos.x, worldPos.y, worldPos.z)
         .setRotation(identityQuat())
         .setCanSleep(false)
-        .setLinearDamping(3.0)
-        .setAngularDamping(4.0)
-        .setGravityScale(0)
+        .setLinearDamping(0.35)
+        .setAngularDamping(0.85)
     );
     createKitCollider(
       world,
@@ -179,6 +179,22 @@ export function buildKitSuspension(
     bodyByKey.set(def.id, body);
   }
 
+  // Soft hub plant spheres (ONE vertical plant — not stacked with chassis-ray spring).
+  for (const wheel of kit.wheels) {
+    const axle = axles.get(wheel.axle);
+    if (!axle) throw new Error(`hub sphere: unknown axle ${wheel.axle}`);
+    world.createCollider(
+      RAPIER.ColliderDesc.ball(wheel.radius)
+        .setTranslation(wheel.hubOffset.x, wheel.hubOffset.y, wheel.hubOffset.z)
+        .setDensity(0)
+        .setFriction(0.2)
+        .setRestitution(0)
+        .setCollisionGroups(HUB_GROUPS)
+        .setSolverGroups(HUB_GROUPS),
+      axle.body
+    );
+  }
+
   for (const linkDef of kit.links) {
     const from = resolveLocal(linkDef.from, kit, axleDefs, `link ${linkDef.id} from`);
     const to = resolveLocal(linkDef.to, kit, axleDefs, `link ${linkDef.id} to`);
@@ -191,15 +207,13 @@ export function buildKitSuspension(
     const center = mid(fromWorld, toWorld);
     const length = Math.max(len(sub(toWorld, fromWorld)), 0.05);
 
-    // Identity-orientation link body: anchors are world deltas from center (exact at rest).
     const body = world.createRigidBody(
       RAPIER.RigidBodyDesc.dynamic()
         .setTranslation(center.x, center.y, center.z)
         .setRotation(identityQuat())
         .setCanSleep(false)
-        .setLinearDamping(2.0)
-        .setAngularDamping(3.0)
-        .setGravityScale(0)
+        .setLinearDamping(0.3)
+        .setAngularDamping(0.6)
     );
     createKitCollider(world, body, RAPIER.ColliderDesc.ball(LINK_RADIUS).setMass(LINK_MASS));
 
@@ -214,28 +228,6 @@ export function buildKitSuspension(
     scene.add(mesh);
     links.push({ id: linkDef.id, body, mesh, def: linkDef, length });
   }
-
-  const holdRestPose = (chassisBody: RAPIER.RigidBody): void => {
-    const rot = chassisBody.rotation();
-    for (const axle of axles.values()) {
-      const p = worldFromChassis(chassisBody, axle.restLocal);
-      axle.body.setTranslation(p, true);
-      axle.body.setRotation(rot, true);
-      axle.body.setLinvel(chassisBody.linvel(), true);
-      axle.body.setAngvel(chassisBody.angvel(), true);
-    }
-    for (const link of links) {
-      const from = resolveLocal(link.def.from, kit, axleDefs, `hold ${link.id}`);
-      const to = resolveLocal(link.def.to, kit, axleDefs, `hold ${link.id}`);
-      const fromWorld = worldFromChassis(chassisBody, chassisLocalForRef(from, axleDefs));
-      const toWorld = worldFromChassis(chassisBody, chassisLocalForRef(to, axleDefs));
-      const center = mid(fromWorld, toWorld);
-      link.body.setTranslation(center, true);
-      link.body.setRotation(identityQuat(), true);
-      link.body.setLinvel(chassisBody.linvel(), true);
-      link.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-    }
-  };
 
   const reset = (chassisBody: RAPIER.RigidBody): void => {
     const rot = identityQuat();
@@ -264,7 +256,6 @@ export function buildKitSuspension(
   const syncMeshes = (): void => {
     for (const axle of axles.values()) syncRigidBodyToObject(axle.body, axle.mesh);
     for (const link of links) {
-      // Keep the visual rod between current mount world points (body may tumble about its axis).
       const from = resolveLocal(link.def.from, kit, axleDefs, `sync ${link.id}`);
       const to = resolveLocal(link.def.to, kit, axleDefs, `sync ${link.id}`);
       const fromBody = bodyByKey.get(from.bodyKey)!;
@@ -275,19 +266,25 @@ export function buildKitSuspension(
       const tr = toBody.rotation();
       const fq = new THREE.Quaternion(fr.x, fr.y, fr.z, fr.w);
       const tq = new THREE.Quaternion(tr.x, tr.y, tr.z, tr.w);
-      const fromWorld = new THREE.Vector3(from.local.x, from.local.y, from.local.z).applyQuaternion(fq).add(new THREE.Vector3(ft.x, ft.y, ft.z));
-      const toWorld = new THREE.Vector3(to.local.x, to.local.y, to.local.z).applyQuaternion(tq).add(new THREE.Vector3(tt.x, tt.y, tt.z));
+      const fromWorld = new THREE.Vector3(from.local.x, from.local.y, from.local.z)
+        .applyQuaternion(fq)
+        .add(new THREE.Vector3(ft.x, ft.y, ft.z));
+      const toWorld = new THREE.Vector3(to.local.x, to.local.y, to.local.z)
+        .applyQuaternion(tq)
+        .add(new THREE.Vector3(tt.x, tt.y, tt.z));
       link.mesh.position.copy(fromWorld).add(toWorld).multiplyScalar(0.5);
-      link.mesh.quaternion.copy(meshLookRotation(
-        { x: fromWorld.x, y: fromWorld.y, z: fromWorld.z },
-        { x: toWorld.x, y: toWorld.y, z: toWorld.z }
-      ));
+      link.mesh.quaternion.copy(
+        meshLookRotation(
+          { x: fromWorld.x, y: fromWorld.y, z: fromWorld.z },
+          { x: toWorld.x, y: toWorld.y, z: toWorld.z }
+        )
+      );
       const dist = fromWorld.distanceTo(toWorld);
       link.mesh.scale.set(1, 1, Math.max(dist, 0.05) / link.length);
     }
   };
 
-  return { axles, links, reset, holdRestPose, syncMeshes };
+  return { axles, links, wheels: kit.wheels, reset, syncMeshes };
 }
 
 export function hubWorldPosition(axle: KitAxleRuntime, hubOffset: Vec3): THREE.Vector3 {

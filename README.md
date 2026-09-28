@@ -43,7 +43,7 @@ Top-level: `parts`, `spawn`, `maxSpeed`, `cameraOffset`, `kit`.
 | `kit.wheels[]` | Hubs on an axle: `axle`, `hubOffset` (axle-local), `radius`, `width`, `driven`, `steered` |
 | `kit.drive` | Shared grip / motor caps: `mu`, `driveTorque`, `maxForce`, `steerAngle`, `maxAccel`, `minNormalY`, `minUpright` |
 
-Phase 1 was data + validation only. **Phase 2a** (branch `kit-suspension`) adds Strategy B articulation: dynamic narrow-cuboid axles, light link bodies with `JointData.spherical` at each end (4 arms per axle; panhard when present in JSON), kit collision groups (no self-hit), tire meshes on axle hubs, and temporary height hold via `gravityScale(0)` on kit parts. Chassis-ray drive is paused while a kit is loaded (it fights the sphericals; returns with Phase 3 coilovers). No shock forces yet.
+Phase 1 was data + validation only. **Phase 2a** added Strategy B articulation (axles + spherical links). **Phase 3** (SCX10.1-scale, 313 mm WB): equal-length parallel 4-link + panhard locate each axle; soft hub spheres are the only ground plant; vertical coilovers support ride height; hub drive restores throttle/steer. No chassis-ray spring (no double plant).
 
 ### Legacy suspension and grip fields
 

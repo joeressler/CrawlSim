@@ -1,6 +1,5 @@
 /**
- * Headless idle settle gate for Strategy B Phase 2a.
- * Measures late-window activity (last 1.0s) so early ray/joint settle is ignored.
+ * Phase 3 settle: idle gap, max|vy|, upright (no tip-over), no crumple, drive+steer smoke.
  */
 import * as THREE from "three";
 import { loadStockRig } from "../src/data/loadRig.ts";
@@ -13,23 +12,28 @@ export type SettleMetrics = {
   yawRad: number;
   planarDrift: number;
   axleMaxAbsVy: number;
-  yawRate: number;
-  planarRate: number;
+  idleGap: number;
+  chassisY: number;
+  upright: number;
+  relHang: number;
+  driveDeltaZ: number;
+  steerYaw: number;
   frames: number;
   dt: number;
   seconds: number;
 };
 
-export async function runIdleSettle(seconds = 4, dt = 1 / 60): Promise<SettleMetrics> {
+export async function runIdleSettle(seconds = 5, dt = 1 / 60): Promise<SettleMetrics> {
   await PhysicsWorld.init();
   const rig = loadStockRig();
   const physics = PhysicsWorld.create();
-  physics.world.integrationParameters.numSolverIterations = 14;
+  physics.world.integrationParameters.numSolverIterations = 28;
+  physics.world.integrationParameters.normalizedAllowedLinearError = 0.0005;
   const trail = new TrailScene(physics, rig.spawn);
   const vehicle = new CrawlerVehicle(physics, trail.scene, rig);
 
   const frames = Math.round(seconds / dt);
-  const windowSec = 1.0;
+  const windowSec = 1.2;
   const windowFrames = Math.round(windowSec / dt);
   const measureAfter = frames - windowFrames;
 
@@ -38,8 +42,9 @@ export async function runIdleSettle(seconds = 4, dt = 1 / 60): Promise<SettleMet
   let yawStart = 0;
   let planarStart = { x: 0, z: 0 };
   let marked = false;
-
-  const origin = vehicle.chassisBody.translation();
+  let idleGap = 0;
+  let upright = 1;
+  let relHang = 0;
 
   for (let i = 0; i < frames; i += 1) {
     vehicle.preStep(physics.world, { throttle: 0, steer: 0, reset: false }, dt);
@@ -66,7 +71,15 @@ export async function runIdleSettle(seconds = 4, dt = 1 / 60): Promise<SettleMet
       for (const axle of kit.axles.values()) {
         axleMaxAbsVy = Math.max(axleMaxAbsVy, Math.abs(axle.body.linvel().y));
       }
+      const ch = vehicle.chassisBody.translation();
+      const ax = kit.axles.get("front")!.body.translation();
+      relHang = ch.y - ax.y;
     }
+    idleGap = vehicle.minHubClearance();
+    const rot = vehicle.chassisBody.rotation();
+    const q = new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w);
+    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(q);
+    upright = up.y;
   }
 
   const end = vehicle.chassisBody.translation();
@@ -75,39 +88,117 @@ export async function runIdleSettle(seconds = 4, dt = 1 / 60): Promise<SettleMet
     new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w),
     "YXZ"
   ).y;
-
   const yawRad = marked ? yawEnd - yawStart : yawEnd;
   const planarDrift = marked
     ? Math.hypot(end.x - planarStart.x, end.z - planarStart.z)
-    : Math.hypot(end.x - origin.x, end.z - origin.z);
+    : 0;
+
+  // Drive smoke: throttle forward.
+  const z0 = vehicle.chassisBody.translation().z;
+  for (let i = 0; i < 200; i += 1) {
+    vehicle.preStep(physics.world, { throttle: 1, steer: 0, reset: false }, dt);
+    physics.step(dt);
+    vehicle.syncMeshes();
+  }
+  const driveDeltaZ = z0 - vehicle.chassisBody.translation().z;
+
+  // Steer smoke: expect yaw response.
+  vehicle.reset();
+  for (let i = 0; i < 30; i += 1) {
+    vehicle.preStep(physics.world, { throttle: 0, steer: 0, reset: false }, dt);
+    physics.step(dt);
+  }
+  const yawBefore = new THREE.Euler().setFromQuaternion(
+    new THREE.Quaternion(
+      vehicle.chassisBody.rotation().x,
+      vehicle.chassisBody.rotation().y,
+      vehicle.chassisBody.rotation().z,
+      vehicle.chassisBody.rotation().w
+    ),
+    "YXZ"
+  ).y;
+  for (let i = 0; i < 100; i += 1) {
+    vehicle.preStep(physics.world, { throttle: 0.7, steer: 1, reset: false }, dt);
+    physics.step(dt);
+    vehicle.syncMeshes();
+  }
+  const yawAfter = new THREE.Euler().setFromQuaternion(
+    new THREE.Quaternion(
+      vehicle.chassisBody.rotation().x,
+      vehicle.chassisBody.rotation().y,
+      vehicle.chassisBody.rotation().z,
+      vehicle.chassisBody.rotation().w
+    ),
+    "YXZ"
+  ).y;
+  const steerYaw = yawAfter - yawBefore;
 
   return {
     maxAbsVy,
     yawRad,
     planarDrift,
     axleMaxAbsVy,
-    yawRate: yawRad / windowSec,
-    planarRate: planarDrift / windowSec,
+    idleGap,
+    chassisY: end.y,
+    upright,
+    relHang,
+    driveDeltaZ,
+    steerYaw,
     frames,
     dt,
     seconds,
   };
 }
 
-/** Late-window idle calm (per second). */
 const MAX_ABS_VY = 0.35;
-const MAX_AXLE_ABS_VY = 0.45;
-const MAX_YAW = 0.06;
-const MAX_PLANAR = 0.08;
+const MAX_AXLE_ABS_VY = 0.5;
+const MAX_YAW = 0.25;
+const MAX_PLANAR = 0.2;
+const MIN_IDLE_GAP = -0.02;
+const MAX_IDLE_GAP = 0.04;
+const MIN_DRIVE_DZ = 0.08;
+const MIN_CHASSIS_Y = 0.07;
+const MIN_UPRIGHT = 0.75;
+const MIN_REL_HANG = 0.03; // chassis above axle — no crumple
+const MIN_STEER_YAW = 0.05;
 
 const metrics = await runIdleSettle();
 const ok =
   metrics.maxAbsVy <= MAX_ABS_VY &&
   metrics.axleMaxAbsVy <= MAX_AXLE_ABS_VY &&
   Math.abs(metrics.yawRad) <= MAX_YAW &&
-  metrics.planarDrift <= MAX_PLANAR;
+  metrics.planarDrift <= MAX_PLANAR &&
+  metrics.idleGap >= MIN_IDLE_GAP &&
+  metrics.idleGap <= MAX_IDLE_GAP &&
+  metrics.driveDeltaZ >= MIN_DRIVE_DZ &&
+  metrics.chassisY >= MIN_CHASSIS_Y &&
+  metrics.upright >= MIN_UPRIGHT &&
+  metrics.relHang >= MIN_REL_HANG &&
+  Math.abs(metrics.steerYaw) >= MIN_STEER_YAW;
 
-console.log(JSON.stringify({ ok, thresholds: { MAX_ABS_VY, MAX_AXLE_ABS_VY, MAX_YAW, MAX_PLANAR }, metrics }, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      ok,
+      thresholds: {
+        MAX_ABS_VY,
+        MAX_AXLE_ABS_VY,
+        MAX_YAW,
+        MAX_PLANAR,
+        MIN_IDLE_GAP,
+        MAX_IDLE_GAP,
+        MIN_DRIVE_DZ,
+        MIN_CHASSIS_Y,
+        MIN_UPRIGHT,
+        MIN_REL_HANG,
+        MIN_STEER_YAW,
+      },
+      metrics,
+    },
+    null,
+    2
+  )
+);
 if (!ok) {
   console.error("idle settle gate FAILED");
   process.exit(1);

@@ -11,12 +11,18 @@ import {
   hubWorldPosition,
   type KitSuspensionRuntime,
 } from "./kitBodies.ts";
+import { applyCoilovers, buildCoilovers, type CoiloverRuntime } from "./kitCoilovers.ts";
+import {
+  applyHubDrive,
+  createHubDriveState,
+  resetHubDriveState,
+  type HubDriveState,
+} from "./kitHubDrive.ts";
 import type { KitWheelDef, RigDef } from "./types.ts";
 
 type WheelRuntime = {
   sim: WheelSim;
   mesh: THREE.Mesh;
-  /** Strategy B: hub on a kit axle. */
   kitWheel?: KitWheelDef;
 };
 
@@ -29,8 +35,10 @@ export class CrawlerVehicle {
   private readonly wheels: WheelRuntime[];
   private readonly sims: WheelSim[];
   private readonly driveState: DriveState;
+  private readonly hubDriveState: HubDriveState;
   private readonly rig: RigDef;
   private readonly kit: KitSuspensionRuntime | null;
+  private readonly coilovers: CoiloverRuntime[];
 
   constructor(physics: PhysicsWorld, scene: THREE.Scene, rig: RigDef) {
     this.rig = rig;
@@ -44,6 +52,7 @@ export class CrawlerVehicle {
     this.chassisBody = physics.world.createRigidBody(chassisDesc);
     physics.world.createCollider(
       RAPIER.ColliderDesc.cuboid(halfExtents.x, halfExtents.y, halfExtents.z)
+        .setTranslation(0, -0.02, 0)
         .setMass(mass)
         .setFriction(0.02)
         .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min)
@@ -60,9 +69,15 @@ export class CrawlerVehicle {
     scene.add(this.chassisMesh);
 
     this.kit = rig.kit ? buildKitSuspension(physics.world, scene, this.chassisBody, rig.kit) : null;
+    if (this.kit) {
+      this.chassisBody.setLinearDamping(0.08);
+      this.chassisBody.setAngularDamping(0.45);
+    }
+    this.coilovers = this.kit && rig.kit ? buildCoilovers(rig.kit, this.chassisBody, this.kit.axles) : [];
 
     this.sims = createWheelSims(rig);
     this.driveState = createDriveState();
+    this.hubDriveState = createHubDriveState();
     const kitWheels = new Map((rig.kit?.wheels ?? []).map((w) => [w.id, w]));
     this.wheels = this.sims.map((sim, index) => {
       const def = rig.wheels[index];
@@ -81,19 +96,28 @@ export class CrawlerVehicle {
       this.reset();
       return;
     }
-    // Phase 2a: kit sphericals + temporary g0 hold. Chassis-ray drive fights the
-    // articulation (may return in Phase 3 with coilovers). Throttle is a no-op here.
-    if (!this.kit) {
-      applyDrive(world, this.chassisBody, this.sims, this.rig, input, this.driveState, dt);
-    } else if (input.throttle !== 0 || input.steer !== 0) {
-      // Keep steer/spin visuals alive lightly without ray forces.
+    if (this.kit) {
+      // Phase 3: coilovers + hub drive. No chassis-ray spring (would double-plant).
+      applyCoilovers(this.chassisBody, this.kit.axles, this.coilovers, dt);
+      const hubWheels = this.wheels.flatMap((w) => {
+        if (!w.kitWheel) return [];
+        const axle = this.kit!.axles.get(w.kitWheel.axle);
+        if (!axle) return [];
+        return [{ def: w.kitWheel, axle }];
+      });
+      applyHubDrive(world, this.chassisBody, this.kit.axles, hubWheels, this.rig, input, this.hubDriveState, dt);
       for (const wheel of this.wheels) {
-        if (wheel.sim.steered) wheel.sim.steer = input.steer * this.rig.suspension.steerAngle;
+        if (!wheel.kitWheel) continue;
+        if (wheel.sim.steered) {
+          wheel.sim.steer = this.hubDriveState.steer * this.rig.suspension.steerAngle;
+        }
         if (wheel.sim.driven && input.throttle !== 0) {
           wheel.sim.spin += (input.throttle * this.rig.maxSpeed * dt) / wheel.sim.radius;
         }
       }
+      return;
     }
+    applyDrive(world, this.chassisBody, this.sims, this.rig, input, this.driveState, dt);
   }
 
   reset(): void {
@@ -105,6 +129,7 @@ export class CrawlerVehicle {
     this.kit?.reset(this.chassisBody);
     resetWheelSims(this.sims);
     resetDriveState(this.driveState);
+    resetHubDriveState(this.hubDriveState);
   }
 
   syncMeshes(): void {
@@ -138,8 +163,21 @@ export class CrawlerVehicle {
     return this.chassisMesh.position;
   }
 
-  /** Expose kit runtime for settle metrics / later phases. */
   kitSuspension(): KitSuspensionRuntime | null {
     return this.kit;
+  }
+
+  /** Lowest hub underside Y — settle gap metric. */
+  minHubClearance(): number {
+    if (!this.kit) return Number.NaN;
+    let min = Infinity;
+    for (const wheel of this.wheels) {
+      if (!wheel.kitWheel) continue;
+      const axle = this.kit.axles.get(wheel.kitWheel.axle);
+      if (!axle) continue;
+      const hub = hubWorldPosition(axle, wheel.kitWheel.hubOffset);
+      min = Math.min(min, hub.y - wheel.kitWheel.radius);
+    }
+    return min;
   }
 }
