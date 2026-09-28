@@ -7,6 +7,7 @@ import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
 import { CHASSIS_GROUPS, HUB_GROUPS, KIT_PART_GROUPS } from "../physics/collisionGroups.ts";
 import { syncRigidBodyToObject } from "../physics/sync.ts";
+import { buildScxAxleVisual, buildScxLinkVisual } from "./scxVisuals.ts";
 import type { AxleDef, KitDef, KitWheelDef, LinkDef, MountDef, MountRef, Vec3 } from "./types.ts";
 
 const AXLE_HALF = { x: 0.105, y: 0.016, z: 0.016 };
@@ -17,7 +18,7 @@ const LINK_RADIUS = 0.01;
 export type KitAxleRuntime = {
   id: string;
   body: RAPIER.RigidBody;
-  mesh: THREE.Mesh;
+  mesh: THREE.Object3D;
   def: AxleDef;
   restLocal: Vec3;
 };
@@ -25,7 +26,7 @@ export type KitAxleRuntime = {
 export type KitLinkRuntime = {
   id: string;
   body: RAPIER.RigidBody;
-  mesh: THREE.Mesh;
+  mesh: THREE.Object3D;
   def: LinkDef;
   length: number;
 };
@@ -152,9 +153,6 @@ export function buildKitSuspension(
   const bodyByKey = new Map<string, RAPIER.RigidBody>();
   bodyByKey.set("chassis", chassis);
 
-  const axleMat = new THREE.MeshStandardMaterial({ color: 0x666666 });
-  const linkMat = new THREE.MeshStandardMaterial({ color: 0xb08d57 });
-
   for (const def of kit.axles) {
     const worldPos = worldFromChassis(chassis, def.offset);
     const body = world.createRigidBody(
@@ -170,10 +168,7 @@ export function buildKitSuspension(
       body,
       RAPIER.ColliderDesc.cuboid(AXLE_HALF.x, AXLE_HALF.y, AXLE_HALF.z).setMass(AXLE_MASS)
     );
-    const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(AXLE_HALF.x * 2, AXLE_HALF.y * 2, AXLE_HALF.z * 2),
-      axleMat
-    );
+    const mesh = buildScxAxleVisual(AXLE_HALF.x);
     scene.add(mesh);
     axles.set(def.id, { id: def.id, body, mesh, def, restLocal: { ...def.offset } });
     bodyByKey.set(def.id, body);
@@ -222,7 +217,7 @@ export function buildKitSuspension(
     world.createImpulseJoint(RAPIER.JointData.spherical(from.local, anchorLinkFrom), fromBody, body, true);
     world.createImpulseJoint(RAPIER.JointData.spherical(anchorLinkTo, to.local), body, toBody, true);
 
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(LINK_RADIUS * 2, LINK_RADIUS * 2, length), linkMat);
+    const mesh = buildScxLinkVisual(length, linkDef.kind === "panhard");
     mesh.position.set(center.x, center.y, center.z);
     mesh.quaternion.copy(meshLookRotation(fromWorld, toWorld));
     scene.add(mesh);

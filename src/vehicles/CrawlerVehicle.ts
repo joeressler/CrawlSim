@@ -1,4 +1,4 @@
-import RAPIER from "@dimforge/rapier3d-compat";
+﻿import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
 import type { DriveInput } from "../input/Input.ts";
 import { CHASSIS_GROUPS } from "../physics/collisionGroups.ts";
@@ -19,6 +19,12 @@ import {
   type HubDriveState,
 } from "./kitHubDrive.ts";
 import type { KitWheelDef, RigDef } from "./types.ts";
+import {
+  buildScxChassisVisual,
+  buildScxShockVisual,
+  syncShockVisual,
+  type ShockVisual,
+} from "./scxVisuals.ts";
 
 type WheelRuntime = {
   sim: WheelSim;
@@ -28,9 +34,13 @@ type WheelRuntime = {
 
 const localOffset = new THREE.Vector3();
 const suspensionDir = new THREE.Vector3();
+const shockFrom = new THREE.Vector3();
+const shockTo = new THREE.Vector3();
+const shockScratch = new THREE.Vector3();
+const shockQ = new THREE.Quaternion();
 
 export class CrawlerVehicle {
-  readonly chassisMesh: THREE.Mesh;
+  readonly chassisMesh: THREE.Object3D;
   readonly chassisBody: RAPIER.RigidBody;
   private readonly wheels: WheelRuntime[];
   private readonly sims: WheelSim[];
@@ -39,6 +49,7 @@ export class CrawlerVehicle {
   private readonly rig: RigDef;
   private readonly kit: KitSuspensionRuntime | null;
   private readonly coilovers: CoiloverRuntime[];
+  private readonly shockVisuals: ShockVisual[];
 
   constructor(physics: PhysicsWorld, scene: THREE.Scene, rig: RigDef) {
     this.rig = rig;
@@ -62,10 +73,8 @@ export class CrawlerVehicle {
       this.chassisBody
     );
 
-    this.chassisMesh = new THREE.Mesh(
-      new THREE.BoxGeometry(halfExtents.x * 2, halfExtents.y * 2, halfExtents.z * 2),
-      new THREE.MeshStandardMaterial({ color: 0x1f4e79 })
-    );
+    // Phase 5: multipart SCX10.1 visual — Rapier chassis cuboid unchanged.
+    this.chassisMesh = buildScxChassisVisual(halfExtents, rig.kit ?? null);
     scene.add(this.chassisMesh);
 
     this.kit = rig.kit ? buildKitSuspension(physics.world, scene, this.chassisBody, rig.kit) : null;
@@ -74,6 +83,12 @@ export class CrawlerVehicle {
       this.chassisBody.setAngularDamping(0.45);
     }
     this.coilovers = this.kit && rig.kit ? buildCoilovers(rig.kit, this.chassisBody, this.kit.axles) : [];
+    this.shockVisuals = [];
+    for (let i = 0; i < this.coilovers.length; i += 1) {
+      const shock = buildScxShockVisual();
+      scene.add(shock.root);
+      this.shockVisuals.push(shock);
+    }
 
     this.sims = createWheelSims(rig);
     this.driveState = createDriveState();
@@ -135,6 +150,7 @@ export class CrawlerVehicle {
   syncMeshes(): void {
     syncRigidBodyToObject(this.chassisBody, this.chassisMesh);
     this.kit?.syncMeshes();
+    this.syncShockMeshes();
     for (const wheel of this.wheels) {
       const { sim, mesh, kitWheel } = wheel;
       if (this.kit && kitWheel) {
@@ -156,6 +172,28 @@ export class CrawlerVehicle {
       mesh.rotateY(sim.steer);
       mesh.rotateZ(Math.PI / 2);
       mesh.rotateY(sim.spin);
+    }
+  }
+
+  private syncShockMeshes(): void {
+    if (!this.kit || this.shockVisuals.length === 0) return;
+    for (let i = 0; i < this.coilovers.length; i += 1) {
+      const coil = this.coilovers[i]!;
+      const visual = this.shockVisuals[i];
+      if (!visual) continue;
+      const axle = this.kit.axles.get(coil.axleId);
+      if (!axle) continue;
+      const ct = this.chassisBody.translation();
+      const cr = this.chassisBody.rotation();
+      shockQ.set(cr.x, cr.y, cr.z, cr.w);
+      shockScratch.set(coil.chassisMount.x, coil.chassisMount.y, coil.chassisMount.z).applyQuaternion(shockQ);
+      shockFrom.set(ct.x + shockScratch.x, ct.y + shockScratch.y, ct.z + shockScratch.z);
+      const at = axle.body.translation();
+      const ar = axle.body.rotation();
+      shockQ.set(ar.x, ar.y, ar.z, ar.w);
+      shockScratch.set(coil.axleMount.x, coil.axleMount.y, coil.axleMount.z).applyQuaternion(shockQ);
+      shockTo.set(at.x + shockScratch.x, at.y + shockScratch.y, at.z + shockScratch.z);
+      syncShockVisual(visual, shockFrom, shockTo);
     }
   }
 
