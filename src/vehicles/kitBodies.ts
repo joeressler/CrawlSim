@@ -160,8 +160,8 @@ export function buildKitSuspension(
         .setTranslation(worldPos.x, worldPos.y, worldPos.z)
         .setRotation(identityQuat())
         .setCanSleep(false)
-        .setLinearDamping(0.35)
-        .setAngularDamping(0.85)
+        .setLinearDamping(0.8)
+        .setAngularDamping(0.92)
     );
     createKitCollider(
       world,

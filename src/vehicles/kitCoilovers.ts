@@ -1,7 +1,8 @@
 ﻿/**
  * Phase 3 coilovers between chassis/axle shock mounts.
- * restLength = geometric mount distance at build (must match BOM so no self-push).
- * Forces along chassis-up only. Compress-only spring (no extension pull fighting links).
+ * restLength = geometric mount distance at build + small hang bias.
+ * Forces along world-up (chassis-up coupled into roll on soft sphericals).
+ * L/R anti-roll bar restores roll stiffness; compress-only spring.
  * Hub spheres = only plant; no Rapier spring joints.
  */
 import type RAPIER from "@dimforge/rapier3d-compat";
@@ -23,7 +24,6 @@ export type CoiloverRuntime = {
 
 const scratchQ = new THREE.Quaternion();
 const scratchV = new THREE.Vector3();
-const up = new THREE.Vector3();
 
 function worldPoint(body: RAPIER.RigidBody, local: Vec3): { x: number; y: number; z: number } {
   const t = body.translation();
@@ -64,12 +64,13 @@ export function buildCoilovers(
     const axleMount = mountOn(kit, shock.to.part, shock.to.mount);
     const a = worldPoint(chassis, chassisMount);
     const b = worldPoint(axle.body, axleMount);
-    // Rest = exact mount separation at build — never fight links with a fake rest.
-    const restLength = Math.max(0.04, Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z));
+    // Small rest bias: world-up plant sits lower; keep chassis hanging above axles.
+    const restBias = axleId === "front" ? 0.024 : 0.008;
+    const restLength = Math.max(0.04, Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) + restBias);
     const springK = shock.springK;
     const mEff = Math.max(0.5, chassisMass / Math.max(1, kit.shocks.length));
     const critical = 2 * Math.sqrt(springK * mEff);
-    const damperC = Math.max(shock.damperC, critical * 1.8);
+    const damperC = Math.max(shock.damperC, critical * 2.4);
     const maxTravel = Math.min(shock.maxTravel, restLength * 0.4);
     const forceCap = (2.8 * chassisMass * 9.81) / Math.max(1, kit.shocks.length);
     out.push({
@@ -95,45 +96,79 @@ export function applyCoilovers(
 ): void {
   if (dt <= 0 || coilovers.length === 0) return;
 
-  const rot = chassis.rotation();
-  scratchQ.set(rot.x, rot.y, rot.z, rot.w);
-  up.set(0, 1, 0).applyQuaternion(scratchQ);
-  const ux = up.x;
-  const uy = up.y;
-  const uz = up.z;
+  // World-up: chassis-up couples into roll when soft sphericals let rails twist
+  // on planted hubs. ARB restores roll stiffness without chassis torque.
+  const ux = 0;
+  const uy = 1;
+  const uz = 0;
 
-  for (const coil of coilovers) {
-    const axle = axles.get(coil.axleId);
+  type Sample = {
+    coil: CoiloverRuntime;
+    axle: KitAxleRuntime;
+    p0: { x: number; y: number; z: number };
+    p1: { x: number; y: number; z: number };
+    compression: number;
+    closingSpeed: number;
+    force: number;
+  };
+  const samples: Sample[] = [];
+
+  for (const c of coilovers) {
+    const axle = axles.get(c.axleId);
     if (!axle) continue;
-    const p0 = worldPoint(chassis, coil.chassisMount);
-    const p1 = worldPoint(axle.body, coil.axleMount);
-
-    // Use full mount distance vs rest so lateral mount offset does not invent compression.
+    const p0 = worldPoint(chassis, c.chassisMount);
+    const p1 = worldPoint(axle.body, c.axleMount);
     const dist = Math.hypot(p0.x - p1.x, p0.y - p1.y, p0.z - p1.z);
-    const compression = coil.restLength - dist;
+    const compression = c.restLength - dist;
 
     const v0 = chassis.velocityAtPoint(p0);
     const v1 = axle.body.velocityAtPoint(p1);
-    // Closing along chassis-up (compress-positive).
     const closingSpeed = (v1.x - v0.x) * ux + (v1.y - v0.y) * uy + (v1.z - v0.z) * uz;
 
     let force = 0;
     if (compression > 0) {
-      force = coil.springK * compression + coil.damperC * closingSpeed;
-      const bumpDepth = compression - coil.maxTravel;
+      force = c.springK * compression + c.damperC * closingSpeed;
+      const bumpDepth = compression - c.maxTravel;
       if (bumpDepth > 0) {
-        force += coil.springK * 8 * bumpDepth + coil.damperC * 2 * Math.max(0, closingSpeed);
+        force += c.springK * 8 * bumpDepth + c.damperC * 2 * Math.max(0, closingSpeed);
       }
     } else {
       // Extension: damper only — no spring pull fighting links / panhard.
-      force = coil.damperC * 0.35 * closingSpeed;
+      force = c.damperC * 0.35 * closingSpeed;
     }
+    if (force > c.forceCap) force = c.forceCap;
+    if (force < -c.forceCap * 0.35) force = -c.forceCap * 0.35;
+    samples.push({ coil: c, axle, p0, p1, compression, closingSpeed, force });
+  }
 
-    if (force > coil.forceCap) force = coil.forceCap;
-    if (force < -coil.forceCap * 0.35) force = -coil.forceCap * 0.35;
+  const byAxle = new Map<string, Sample[]>();
+  for (const s of samples) {
+    const list = byAxle.get(s.coil.axleId) ?? [];
+    list.push(s);
+    byAxle.set(s.coil.axleId, list);
+  }
+  const ARB_K = 55;
+  const ARB_C = 40;
+  for (const pair of byAxle.values()) {
+    if (pair.length !== 2) continue;
+    const left = pair.find((s) => s.coil.chassisMount.x < 0);
+    const right = pair.find((s) => s.coil.chassisMount.x > 0);
+    if (!left || !right) continue;
+    const transfer =
+      ARB_K * (left.compression - right.compression) +
+      ARB_C * (left.closingSpeed - right.closingSpeed);
+    left.force += transfer;
+    right.force -= transfer;
+    for (const s of [left, right]) {
+      if (s.force > s.coil.forceCap) s.force = s.coil.forceCap;
+      if (s.force < -s.coil.forceCap * 0.35) s.force = -s.coil.forceCap * 0.35;
+    }
+  }
 
-    const impulse = force * dt;
-    chassis.applyImpulseAtPoint({ x: ux * impulse, y: uy * impulse, z: uz * impulse }, p0, true);
-    axle.body.applyImpulseAtPoint({ x: -ux * impulse, y: -uy * impulse, z: -uz * impulse }, p1, true);
+  for (const s of samples) {
+    const impulse = s.force * dt;
+    chassis.applyImpulseAtPoint({ x: ux * impulse, y: uy * impulse, z: uz * impulse }, s.p0, true);
+    s.axle.body.applyImpulseAtPoint({ x: -ux * impulse, y: -uy * impulse, z: -uz * impulse }, s.p1, true);
   }
 }
+
