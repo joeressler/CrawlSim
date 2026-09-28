@@ -482,8 +482,8 @@ export function applyHubDrive(
     const penet = Math.max(0, wheel.radius - hit.toi);
     const share = weight / Math.max(1, hubWheels.length);
     // Steep/face contacts get little weight·support — penetration floor keeps μFn alive.
-    const supportFn = share * 1.1 * Math.max(hit.support, faceBoost ? 0.35 : 0);
-    const fn = Math.min(supportFn + penet * 220, share * (faceBoost ? 2.2 : 1.6));
+    const supportFn = share * 1.1 * Math.max(hit.support, faceBoost ? 0.4 : 0);
+    const fn = Math.min(supportFn + penet * 240, share * (faceBoost ? 2.4 : 1.65));
     if (fn <= 1e-3) return;
 
     const nx = hit.nx;
@@ -676,10 +676,10 @@ export function applyHubDrive(
       const mass = Math.max(0.5, chassis.mass());
       // Planar COM assist for flat drive; hub long Coulomb along tx supplies climb.
       const motorCap = Math.min(
-        drive.maxAccel * mass * dt * Math.max(0.35, driveScale) * 0.7,
-        drive.maxForce * dt * 0.7
+        drive.maxAccel * mass * dt * Math.max(0.4, driveScale) * 0.9,
+        drive.maxForce * dt * 0.85
       );
-      const j = clampImpulse(err * mass * 0.75 * dt, -motorCap, motorCap);
+      const j = clampImpulse(err * mass * 0.8 * dt, -motorCap, motorCap);
       chassis.applyImpulse({ x: fx * j, y: fy * j, z: fz * j }, true);
 
       // Climb boost along low-support contact tangents (uphill / vertical face).
@@ -697,22 +697,27 @@ export function applyHubDrive(
           const vClimb = lin.x * clx + lin.y * cly + lin.z * clz;
           const climbErr = state.commandSpeed - vClimb;
           const climbCap = Math.min(
-            drive.maxAccel * mass * dt * Math.max(0.4, driveScale) * 0.55,
-            drive.maxForce * dt * 0.55
+            drive.maxAccel * mass * dt * Math.max(0.45, driveScale) * 0.85,
+            drive.maxForce * dt * 0.85
           );
-          const jc = clampImpulse(climbErr * mass * 0.7 * dt, -climbCap, climbCap);
+          const jc = clampImpulse(climbErr * mass * 0.85 * dt, -climbCap, climbCap);
           chassis.applyImpulse({ x: clx * jc, y: cly * jc, z: clz * jc }, true);
         }
       }
 
-      // Phase 6: mild drive-only upright restore (anti pitch-dive; idle path unchanged).
-      if (upright < 0.9 && upright > 0.4) {
-        basis.set(1, 0, 0).applyQuaternion(q);
-        const torque = (0.9 - upright) * 0.85 * mass * dt;
-        chassis.applyTorqueImpulse(
-          { x: basis.x * torque, y: basis.y * torque, z: basis.z * torque },
-          true
-        );
+      // Phase 6: mild drive-only pitch restore. Sign follows nose attitude
+      // (fights wheelie AND dive). Keep gain low — strong restore starved flat drive.
+      if (upright < 0.95 && upright > 0.4) {
+        basis.set(0, 0, -1).applyQuaternion(q);
+        const noseUp = basis.x * upx + basis.y * upy + basis.z * upz;
+        if (Math.abs(noseUp) > 0.06) {
+          basis.set(1, 0, 0).applyQuaternion(q);
+          const torque = -noseUp * 0.22 * mass * dt;
+          chassis.applyTorqueImpulse(
+            { x: basis.x * torque, y: basis.y * torque, z: basis.z * torque },
+            true
+          );
+        }
       }
     }
   }

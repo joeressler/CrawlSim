@@ -43,7 +43,7 @@ Top-level: `parts`, `spawn`, `maxSpeed`, `cameraOffset`, `kit`.
 | `kit.wheels[]` | Hubs on an axle: `axle`, `hubOffset` (axle-local), `radius`, `width`, `driven`, `steered` |
 | `kit.drive` | Shared grip / motor caps: `mu`, `driveTorque`, `maxForce`, `steerAngle`, `maxAccel`, `minNormalY`, `minUpright` |
 
-Phase 1 was data + validation only. **Phase 2a** added Strategy B articulation (axles + spherical links). **Phase 3** (SCX10.1-scale, 313 mm WB): equal-length parallel 4-link + panhard locate each axle; soft hub spheres are the only ground plant; vertical coilovers support ride height; hub drive restores throttle/steer. No chassis-ray spring (no double plant). **Phase 4**: Coulomb/ray grip retargeted to axle hubs (Fn estimate only; spheres plant; reverse steer yaw). WASD + reverse. No multipart chassis visual. **Phase 5**: procedural multipart SCX10.1 visuals (C-channel rails, shock hoops, skid, radio box, battery tray, bumpers; axle/link/shock primitives). Rapier proxies unchanged. **Phase 6**: suspension stability — lower chassis COM, gentler hub accel, crawl upright floors raised. Soft kit locate assist: WB spring F/R, axle yaw limits, skid transfer+shaft visuals with lateral-only stiffeners (no lock joints). Climb: hub long Coulomb along contact tangent + front lip face probe; kit reset copies chassis quat to axles. Bump crumple: coilover bump-stop uses a higher force budget than ride cap; chassis-up hang floor only past full travel (no lock joints). Strategy B / one plant / SCX10.1 unchanged.
+Phase 1 was data + validation only. **Phase 2a** added Strategy B articulation (axles + spherical links). **Phase 3** (SCX10.1-scale, 313 mm WB): equal-length parallel 4-link + panhard locate each axle; soft hub spheres are the only ground plant; vertical coilovers support ride height; hub drive restores throttle/steer. No chassis-ray spring (no double plant). **Phase 4**: Coulomb/ray grip retargeted to axle hubs (Fn estimate only; spheres plant; reverse steer yaw). WASD + reverse. No multipart chassis visual. **Phase 5**: procedural multipart SCX10.1 visuals (C-channel rails, shock hoops, skid, radio box, battery tray, bumpers; axle/link/shock primitives). Rapier proxies unchanged. **Phase 6**: suspension stability — lower chassis COM, gentler hub accel, crawl upright floors raised. Soft kit locate assist: WB spring F/R, axle yaw limits, skid transfer+shaft visuals with lateral-only stiffeners (no lock joints). Climb: hub long Coulomb along contact tangent + front lip face probe; kit reset copies chassis quat to axles. Bump/accel crumple: chassis↔axle collision pads (rest gap, CCD) + shock-axis bump packer — no COM hang-floor impulses (those fought links and made throttle axle-drag worse). Pitch restore signed by nose attitude. Stairs ~1–2.5 tire diameters. Strategy B / one plant / SCX10.1 unchanged.
 
 ### Legacy suspension and grip fields
 
@@ -89,6 +89,9 @@ Autonomous crawler gates for CI / unattended runs. Fixed dt = 1/60, scripted WAS
 | Crawl min upright | >= 0.28 (final >= 0.30; not inverted) |
 | Flat peak forward | >= 0.08 m |
 | Ramp peak forward (toward ramp) | >= 0.08 m |
+| Ramp from flat climbY + hang | climbY >= 0.35 m, minHang >= 8 mm |
+| Stairs climbY + hang | climbY >= 0.12 m, minHang >= 8 mm |
+| Throttle hang (F+R) | minHang >= 8 mm while driving |
 | Ledge peak +X or maxY | >= 0.25 m or >= 0.12 m (crest attempt) |
 
 Shared harness: `scripts/crawlHarness.ts`.

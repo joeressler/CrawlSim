@@ -1,16 +1,17 @@
-/**
+﻿/**
  * Strategy B Phase 3: dynamic axle bodies + spherical link kit + soft hub plant spheres.
  * Gravity restored on kit parts. Vertical plant = hub spheres only (no chassis-ray spring).
  * Coilovers / hub drive live in kitCoilovers.ts + kitHubDrive.ts.
  */
 import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
-import { CHASSIS_GROUPS, HUB_GROUPS, KIT_PART_GROUPS } from "../physics/collisionGroups.ts";
+import { AXLE_GROUPS, CHASSIS_GROUPS, HUB_GROUPS, KIT_PART_GROUPS } from "../physics/collisionGroups.ts";
 import { syncRigidBodyToObject } from "../physics/sync.ts";
 import { buildScxAxleVisual, buildScxLinkVisual } from "./scxVisuals.ts";
 import type { AxleDef, KitDef, KitWheelDef, LinkDef, MountDef, MountRef, Vec3 } from "./types.ts";
 
-const AXLE_HALF = { x: 0.105, y: 0.016, z: 0.016 };
+// Thin tube proxy: keep rest gap vs chassis cuboid so contact is crumple-only.
+const AXLE_HALF = { x: 0.105, y: 0.009, z: 0.009 };
 const AXLE_MASS = 0.4;
 const LINK_MASS = 0.05;
 const LINK_RADIUS = 0.01;
@@ -111,9 +112,14 @@ function meshLookRotation(from: Vec3, to: Vec3): THREE.Quaternion {
   return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
 }
 
-function createKitCollider(world: RAPIER.World, body: RAPIER.RigidBody, desc: RAPIER.ColliderDesc): void {
+function createKitCollider(
+  world: RAPIER.World,
+  body: RAPIER.RigidBody,
+  desc: RAPIER.ColliderDesc,
+  groups: number = KIT_PART_GROUPS
+): void {
   world.createCollider(
-    desc.setCollisionGroups(KIT_PART_GROUPS).setSolverGroups(KIT_PART_GROUPS).setRestitution(0).setFriction(0.15),
+    desc.setCollisionGroups(groups).setSolverGroups(groups).setRestitution(0).setFriction(0.15),
     body
   );
 }
@@ -132,6 +138,25 @@ export function buildKitSuspension(
   for (let i = 0; i < n; i += 1) {
     chassis.collider(i).setCollisionGroups(CHASSIS_GROUPS);
     chassis.collider(i).setSolverGroups(CHASSIS_GROUPS);
+  }
+
+  // Crumple pads above each axle: density-0 chassis colliders that meet axle tubes
+  // only after ~38mm of hang collapse (past soft travel). Rest pose keeps a gap (no idle fight). Links
+  // stay non-colliding. This replaces soft COM hang-floor impulses.
+  for (const def of kit.axles) {
+    const padHalf = { x: 0.1, y: 0.012, z: 0.045 };
+    // Axle top at rest ~ offset.y + AXLE_HALF.y; pad bottom ~28mm above (past soft travel).
+    const padY = def.offset.y + AXLE_HALF.y + padHalf.y + 0.034;
+    world.createCollider(
+      RAPIER.ColliderDesc.cuboid(padHalf.x, padHalf.y, padHalf.z)
+        .setTranslation(def.offset.x, padY, def.offset.z)
+        .setDensity(0)
+        .setFriction(0.2)
+        .setRestitution(0)
+        .setCollisionGroups(CHASSIS_GROUPS)
+        .setSolverGroups(CHASSIS_GROUPS),
+      chassis
+    );
   }
 
   world.integrationParameters.numSolverIterations = Math.max(
@@ -160,13 +185,15 @@ export function buildKitSuspension(
         .setTranslation(worldPos.x, worldPos.y, worldPos.z)
         .setRotation(identityQuat())
         .setCanSleep(false)
+        .setCcdEnabled(true)
         .setLinearDamping(0.8)
         .setAngularDamping(0.92)
     );
     createKitCollider(
       world,
       body,
-      RAPIER.ColliderDesc.cuboid(AXLE_HALF.x, AXLE_HALF.y, AXLE_HALF.z).setMass(AXLE_MASS)
+      RAPIER.ColliderDesc.cuboid(AXLE_HALF.x, AXLE_HALF.y, AXLE_HALF.z).setMass(AXLE_MASS),
+      AXLE_GROUPS
     );
     const shockMounts = def.mounts.filter((m) => m.id.includes("shock")).map((m) => m.offset);
     const mesh = buildScxAxleVisual(AXLE_HALF.x, shockMounts);
@@ -175,7 +202,7 @@ export function buildKitSuspension(
     bodyByKey.set(def.id, body);
   }
 
-  // Soft hub plant spheres (ONE vertical plant — not stacked with chassis-ray spring).
+  // Soft hub plant spheres (ONE vertical plant â€” not stacked with chassis-ray spring).
   for (const wheel of kit.wheels) {
     const axle = axles.get(wheel.axle);
     if (!axle) throw new Error(`hub sphere: unknown axle ${wheel.axle}`);
@@ -183,7 +210,7 @@ export function buildKitSuspension(
       RAPIER.ColliderDesc.ball(wheel.radius)
         .setTranslation(wheel.hubOffset.x, wheel.hubOffset.y, wheel.hubOffset.z)
         .setDensity(0)
-        .setFriction(0.4)
+        .setFriction(0.85)
         .setRestitution(0)
         .setCollisionGroups(HUB_GROUPS)
         .setSolverGroups(HUB_GROUPS),
@@ -226,7 +253,7 @@ export function buildKitSuspension(
   }
 
   const reset = (chassisBody: RAPIER.RigidBody): void => {
-    // Match chassis yaw/pose — identity left axles 90 deg wrong after place() yaw.
+    // Match chassis yaw/pose â€” identity left axles 90 deg wrong after place() yaw.
     const cr = chassisBody.rotation();
     const rot = { x: cr.x, y: cr.y, z: cr.z, w: cr.w };
     for (const axle of axles.values()) {
@@ -297,3 +324,4 @@ export function axleQuaternion(axle: KitAxleRuntime): THREE.Quaternion {
   const r = axle.body.rotation();
   return new THREE.Quaternion(r.x, r.y, r.z, r.w);
 }
+

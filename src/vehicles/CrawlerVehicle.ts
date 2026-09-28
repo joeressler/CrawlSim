@@ -60,6 +60,7 @@ export class CrawlerVehicle {
     const chassisDesc = RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(rig.spawn.x, rig.spawn.y, rig.spawn.z)
       .setCanSleep(false)
+      .setCcdEnabled(true)
       .setLinearDamping(0.05)
       .setAngularDamping(0.35);
     this.chassisBody = physics.world.createRigidBody(chassisDesc);

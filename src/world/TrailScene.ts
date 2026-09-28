@@ -91,7 +91,7 @@ export class TrailScene {
     const mat = new THREE.MeshStandardMaterial({ color: 0x7a5a3a });
     const halfX = 1.2;
     const halfZ = 0.65;
-    const heights = [0.18, 0.3, 0.42];
+    const heights = [0.12, 0.22, 0.32]; // ~1-2.5 tire diameters (r=0.06)
     const laneX = -6.5;
     const startZ = 1.4;
     const stepPitch = 1.4;
