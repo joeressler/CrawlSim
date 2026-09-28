@@ -168,7 +168,8 @@ export function buildKitSuspension(
       body,
       RAPIER.ColliderDesc.cuboid(AXLE_HALF.x, AXLE_HALF.y, AXLE_HALF.z).setMass(AXLE_MASS)
     );
-    const mesh = buildScxAxleVisual(AXLE_HALF.x);
+    const shockMounts = def.mounts.filter((m) => m.id.includes("shock")).map((m) => m.offset);
+    const mesh = buildScxAxleVisual(AXLE_HALF.x, shockMounts);
     scene.add(mesh);
     axles.set(def.id, { id: def.id, body, mesh, def, restLocal: { ...def.offset } });
     bodyByKey.set(def.id, body);

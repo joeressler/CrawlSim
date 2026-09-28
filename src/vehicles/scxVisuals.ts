@@ -16,9 +16,13 @@ const MAT = {
   axle: new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.6, roughness: 0.4 }),
   pumpkin: new THREE.MeshStandardMaterial({ color: 0x3d3d3d, metalness: 0.45, roughness: 0.5 }),
   link: new THREE.MeshStandardMaterial({ color: 0xb08d57, metalness: 0.35, roughness: 0.55 }),
-  shockBody: new THREE.MeshStandardMaterial({ color: 0x2a4a6a, metalness: 0.4, roughness: 0.45 }),
-  shockShaft: new THREE.MeshStandardMaterial({ color: 0xc0c4c8, metalness: 0.8, roughness: 0.25 }),
-  shockSpring: new THREE.MeshStandardMaterial({ color: 0xd4a017, metalness: 0.5, roughness: 0.4 }),
+  shockBody: new THREE.MeshStandardMaterial({ color: 0x1e4d7a, metalness: 0.55, roughness: 0.35 }),
+  shockCap: new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.4, roughness: 0.5 }),
+  shockCollar: new THREE.MeshStandardMaterial({ color: 0x2a2a2a, metalness: 0.5, roughness: 0.4 }),
+  shockShaft: new THREE.MeshStandardMaterial({ color: 0xd8dde2, metalness: 0.9, roughness: 0.18 }),
+  shockSpring: new THREE.MeshStandardMaterial({ color: 0xc9a227, metalness: 0.65, roughness: 0.35 }),
+  shockEyelet: new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.15, roughness: 0.7 }),
+  shockBall: new THREE.MeshStandardMaterial({ color: 0x3a3a3a, metalness: 0.2, roughness: 0.65 }),
 };
 
 function box(
@@ -78,7 +82,7 @@ function buildCChannelRail(side: 1 | -1, length: number, railX: number): THREE.G
   return g;
 }
 
-/** Outboard triangular multi-hole shock hoop near a shock chassis mount. */
+/** Outboard triangular multi-hole shock hoop with clevis ear at the kit mount. */
 function buildShockHoop(mount: Vec3, side: 1 | -1): THREE.Group {
   const g = new THREE.Group();
   g.name = "shock_hoop";
@@ -87,11 +91,10 @@ function buildShockHoop(mount: Vec3, side: 1 | -1): THREE.Group {
   const baseZ = mount.z;
   const out = side * 0.018;
 
-  // Vertical plate
+  // Vertical multi-hole plate
   const plate = box(0.004, 0.055, 0.042, MAT.hoop, baseX + out * 0.3, baseY - 0.01, baseZ);
   g.add(plate);
 
-  // Triangle brace (approximated with two angled boxes)
   const braceA = box(0.0035, 0.048, 0.01, MAT.hoop, baseX + out * 0.15, baseY - 0.005, baseZ);
   braceA.rotation.z = side * 0.55;
   g.add(braceA);
@@ -100,15 +103,27 @@ function buildShockHoop(mount: Vec3, side: 1 | -1): THREE.Group {
   braceB.rotation.x = 0.25;
   g.add(braceB);
 
-  // Multi-hole look: row of small cylinders (through-holes as dark plugs)
   for (let i = 0; i < 4; i += 1) {
     const hole = cyl(0.0028, 0.0028, 0.005, MAT.plastic, 6);
     hole.rotation.z = Math.PI / 2;
     hole.position.set(baseX + out * 0.55, baseY - 0.028 + i * 0.011, baseZ);
     g.add(hole);
   }
-  // Upper shock mount ear
-  g.add(box(0.014, 0.006, 0.01, MAT.accent, baseX + out * 0.2, baseY + 0.008, baseZ));
+
+  // Clevis fork at the kit shock mount (eyelet bolts through)
+  const forkGap = 0.007;
+  const fork = new THREE.Group();
+  fork.name = "shock_clevis_upper";
+  fork.position.set(baseX, baseY, baseZ);
+  for (const sz of [-1, 1]) {
+    const ear = box(0.012, 0.01, 0.0035, MAT.accent, 0, 0, sz * (forkGap * 0.5 + 0.00175));
+    fork.add(ear);
+  }
+  // Clevis pin
+  const pin = cyl(0.0016, 0.0016, forkGap + 0.008, MAT.shockShaft, 6);
+  pin.rotation.x = Math.PI / 2;
+  fork.add(pin);
+  g.add(fork);
   return g;
 }
 
@@ -200,18 +215,30 @@ export function buildScxChassisVisual(halfExtents: Vec3, kit: KitDef | null): TH
   return root;
 }
 
-/** Solid-axle visual: tube + center pumpkin + outer knuckles. */
-export function buildScxAxleVisual(halfWidth: number): THREE.Group {
+/** Solid-axle visual: tube + pumpkin + knuckles + lower shock clevis tabs. */
+export function buildScxAxleVisual(halfWidth: number, shockMounts: Vec3[] = []): THREE.Group {
   const g = new THREE.Group();
   g.name = "scx_axle";
   const tube = cyl(0.009, 0.009, halfWidth * 2 * 0.92, MAT.axle, 12);
   tube.rotation.z = Math.PI / 2;
   g.add(tube);
-  const pumpkin = box(0.038, 0.034, 0.04, MAT.pumpkin, 0, 0, 0);
-  g.add(pumpkin);
+  g.add(box(0.038, 0.034, 0.04, MAT.pumpkin, 0, 0, 0));
   for (const sx of [-1, 1]) {
-    const knuckle = box(0.022, 0.028, 0.028, MAT.axle, sx * halfWidth * 0.88, 0, 0);
-    g.add(knuckle);
+    g.add(box(0.022, 0.028, 0.028, MAT.axle, sx * halfWidth * 0.88, 0, 0));
+  }
+  // Lower shock mount clevis tabs at kit axle shock mounts
+  for (const m of shockMounts) {
+    const tab = new THREE.Group();
+    tab.name = "shock_clevis_lower";
+    tab.position.set(m.x, m.y, m.z);
+    const gap = 0.007;
+    for (const sz of [-1, 1]) {
+      tab.add(box(0.014, 0.01, 0.0032, MAT.accent, 0, 0, sz * (gap * 0.5 + 0.0016)));
+    }
+    const pin = cyl(0.0015, 0.0015, gap + 0.007, MAT.shockShaft, 6);
+    pin.rotation.x = Math.PI / 2;
+    tab.add(pin);
+    g.add(tab);
   }
   return g;
 }
@@ -224,45 +251,157 @@ export function buildScxLinkVisual(length: number, panhard: boolean): THREE.Mesh
   return mesh;
 }
 
+/** SCX-style oil shock (~80–100 mm hole-to-hole at 1/10). */
 export type ShockVisual = {
   root: THREE.Group;
   body: THREE.Mesh;
+  cap: THREE.Mesh;
+  collar: THREE.Mesh;
   shaft: THREE.Mesh;
   spring: THREE.Mesh;
+  lowerPerch: THREE.Mesh;
+  upperEye: THREE.Group;
+  lowerEye: THREE.Group;
+  /** Reference spring height used for compress scale. */
+  springRefH: number;
+  bodyRefH: number;
+  shaftRefH: number;
 };
 
-/** Coilover stack; caller orients root from chassis mount → axle mount each frame. */
+const SHOCK_BODY_R = 0.006;
+const SHOCK_BODY_H = 0.036;
+const SHOCK_SHAFT_R = 0.00155;
+const SHOCK_SHAFT_H = 0.055;
+const SHOCK_SPRING_R = 0.0088;
+const SHOCK_SPRING_TUBE = 0.00115;
+const SHOCK_SPRING_H = 0.04;
+const SHOCK_SPRING_TURNS = 8;
+const SHOCK_EYE_ALLOW = 0.007;
+
+function buildCoilSpring(radius: number, tubeR: number, height: number, turns: number, mat: THREE.Material): THREE.Mesh {
+  const pts: THREE.Vector3[] = [];
+  const segs = Math.max(24, Math.round(turns * 14));
+  for (let i = 0; i <= segs; i += 1) {
+    const t = i / segs;
+    const ang = t * turns * Math.PI * 2;
+    pts.push(new THREE.Vector3(Math.cos(ang) * radius, (t - 0.5) * height, Math.sin(ang) * radius));
+  }
+  const curve = new THREE.CatmullRomCurve3(pts);
+  const geo = new THREE.TubeGeometry(curve, segs, tubeR, 5, false);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.name = "shock_spring";
+  return mesh;
+}
+
+function buildShockEyelet(name: string): THREE.Group {
+  const g = new THREE.Group();
+  g.name = name;
+  // Nylon/plastic rod-end housing
+  const housing = cyl(0.0042, 0.0036, 0.008, MAT.shockEyelet, 8);
+  g.add(housing);
+  // Spherical ball (clevis pin bearing)
+  const ball = new THREE.Mesh(new THREE.SphereGeometry(0.0032, 8, 6), MAT.shockBall);
+  g.add(ball);
+  // Eye ring (hole axis = local Z so pin through clevis fork is transverse)
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.0038, 0.0011, 6, 12), MAT.shockEyelet);
+  ring.rotation.y = Math.PI / 2;
+  g.add(ring);
+  return g;
+}
+
+/** Coilover stack; sync orients root from chassis mount → axle mount each frame. */
 export function buildScxShockVisual(): ShockVisual {
   const root = new THREE.Group();
   root.name = "shock";
-  const body = cyl(0.007, 0.007, 0.04, MAT.shockBody, 8);
-  body.position.y = 0.02;
-  const shaft = cyl(0.0035, 0.0035, 0.05, MAT.shockShaft, 6);
-  shaft.position.y = -0.01;
-  const spring = cyl(0.009, 0.009, 0.035, MAT.shockSpring, 8);
-  spring.position.y = 0.005;
-  root.add(body, shaft, spring);
-  return { root, body, shaft, spring };
+
+  const upperEye = buildShockEyelet("shock_eye_upper");
+  const lowerEye = buildShockEyelet("shock_eye_lower");
+
+  const cap = cyl(SHOCK_BODY_R * 1.05, SHOCK_BODY_R * 1.05, 0.005, MAT.shockCap, 10);
+  cap.name = "shock_cap";
+
+  const body = cyl(SHOCK_BODY_R, SHOCK_BODY_R, SHOCK_BODY_H, MAT.shockBody, 12);
+  body.name = "shock_body";
+  // Threaded look: thin rings on body
+  for (let i = 0; i < 6; i += 1) {
+    const ring = cyl(SHOCK_BODY_R * 1.04, SHOCK_BODY_R * 1.04, 0.0012, MAT.shockCollar, 10);
+    ring.position.y = -SHOCK_BODY_H * 0.35 + i * 0.0045;
+    body.add(ring);
+  }
+
+  const collar = cyl(SHOCK_BODY_R * 1.15, SHOCK_BODY_R * 1.15, 0.006, MAT.shockCollar, 10);
+  collar.name = "shock_collar";
+
+  const spring = buildCoilSpring(SHOCK_SPRING_R, SHOCK_SPRING_TUBE, SHOCK_SPRING_H, SHOCK_SPRING_TURNS, MAT.shockSpring);
+
+  const lowerPerch = cyl(SHOCK_SPRING_R * 1.05, SHOCK_SPRING_R * 0.95, 0.004, MAT.shockCollar, 10);
+  lowerPerch.name = "shock_perch";
+
+  const shaft = cyl(SHOCK_SHAFT_R, SHOCK_SHAFT_R, SHOCK_SHAFT_H, MAT.shockShaft, 8);
+  shaft.name = "shock_shaft";
+
+  root.add(upperEye, cap, body, collar, spring, lowerPerch, shaft, lowerEye);
+  return {
+    root,
+    body,
+    cap,
+    collar,
+    shaft,
+    spring,
+    lowerPerch,
+    upperEye,
+    lowerEye,
+    springRefH: SHOCK_SPRING_H,
+    bodyRefH: SHOCK_BODY_H,
+    shaftRefH: SHOCK_SHAFT_H,
+  };
 }
 
-/** Orient a shock visual so +Y points from `from` to `to`, centered on the segment. */
-export function syncShockVisual(
-  visual: ShockVisual,
-  from: THREE.Vector3,
-  to: THREE.Vector3
-): void {
-  const mid = from.clone().add(to).multiplyScalar(0.5);
-  visual.root.position.copy(mid);
-  const dir = to.clone().sub(from);
-  const len = Math.max(dir.length(), 0.04);
-  dir.normalize();
-  visual.root.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
-  const bodyLen = Math.min(0.045, len * 0.45);
-  const shaftLen = Math.max(0.02, len * 0.55);
-  visual.body.scale.set(1, bodyLen / 0.04, 1);
-  visual.body.position.y = len * 0.18;
-  visual.shaft.scale.set(1, shaftLen / 0.05, 1);
-  visual.shaft.position.y = -len * 0.12;
-  visual.spring.scale.set(1, Math.min(len * 0.4, 0.04) / 0.035, 1);
-  visual.spring.position.y = len * 0.02;
+const shockDir = new THREE.Vector3();
+const shockY = new THREE.Vector3(0, 1, 0);
+
+/**
+ * Place shock so upper eyelet sits on chassis mount and lower eyelet on axle mount.
+ * Body stays near the hoop; shaft telescopes; spring compresses with hole-to-hole length.
+ */
+export function syncShockVisual(visual: ShockVisual, from: THREE.Vector3, to: THREE.Vector3): void {
+  shockDir.copy(to).sub(from);
+  const len = Math.max(shockDir.length(), 0.045);
+  shockDir.multiplyScalar(1 / len);
+
+  visual.root.position.copy(from);
+  visual.root.quaternion.setFromUnitVectors(shockY, shockDir);
+
+  const eye = SHOCK_EYE_ALLOW;
+  const usable = Math.max(0.03, len - eye * 2);
+  const bodyH = Math.min(visual.bodyRefH, usable * 0.52);
+  const shaftTravel = Math.max(0.012, usable - bodyH * 0.55);
+  const springH = Math.max(0.012, Math.min(visual.springRefH, usable * 0.55));
+
+  // Upper eyelet at mount
+  visual.upperEye.position.set(0, eye * 0.35, 0);
+
+  // Cap just below upper eye
+  const bodyTop = eye + 0.002;
+  visual.cap.position.set(0, bodyTop + 0.0025, 0);
+  visual.body.scale.set(1, bodyH / visual.bodyRefH, 1);
+  visual.body.position.set(0, bodyTop + 0.0025 + bodyH * 0.5, 0);
+
+  // Preload collar near bottom of body (spring seat on body)
+  const collarY = bodyTop + bodyH * 0.88;
+  visual.collar.position.set(0, collarY, 0);
+
+  // Spring between collar and lower perch
+  const perchY = len - eye - 0.004;
+  const springMid = (collarY + perchY) * 0.5;
+  visual.spring.scale.set(1, springH / visual.springRefH, 1);
+  visual.spring.position.set(0, springMid, 0);
+  visual.lowerPerch.position.set(0, perchY, 0);
+
+  // Shaft from inside body toward lower eye
+  visual.shaft.scale.set(1, shaftTravel / visual.shaftRefH, 1);
+  visual.shaft.position.set(0, perchY - shaftTravel * 0.35, 0);
+
+  // Lower eyelet at axle mount
+  visual.lowerEye.position.set(0, len - eye * 0.35, 0);
 }
