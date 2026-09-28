@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Soft locate assist for Strategy B kit: wheelbase consistency, axle yaw limits,
  * and skid-routed drivetrain stiffener (transfer + F/R shafts).
  *
@@ -49,6 +49,12 @@ const YAW_HARD = 0.30;
 const YAW_K = 28;
 const YAW_C = 2.4;
 const YAW_TORQUE_CAP = 6.0;
+
+const HANG_RAIL_Y = -0.032;
+const HANG_K1 = 1600;
+const HANG_K2 = 350000;
+const HANG_C = 50;
+const HANG_FORCE_CAP = 200;
 
 const TRANSFER_LOCAL: Vec3 = { x: 0, y: -0.034, z: 0 };
 const SHAFT_RADIUS = 0.0045;
@@ -423,3 +429,39 @@ function applyLateralShaft(
   chassis.applyImpulseAtPoint({ x: lx * impulse, y: ly * impulse, z: lz * impulse }, transfer, true);
   axle.applyImpulseAtPoint({ x: -lx * impulse, y: -ly * impulse, z: -lz * impulse }, pumpkin, true);
 }
+
+/**
+ * Rear-only soft hang along world +Y at the axle station.
+ * Front stays free for stairs/ramp plant. Pads keep hard stop (~-0.021).
+ * Drive+steer gated by caller. Not COM hang-floor (6a11b26).
+ */
+export function applyHangCeiling(
+  chassis: RAPIER.RigidBody,
+  axle: KitAxleRuntime,
+  dt: number
+): void {
+  if (axle.id !== "rear") return;
+  const cr = chassis.rotation();
+  scratchQ.set(cr.x, cr.y, cr.z, cr.w);
+  scratchUp.set(0, 1, 0).applyQuaternion(scratchQ);
+  if (scratchUp.y < 0.5) return;
+  // Allow mild squat pitch; skip steep climb attitude.
+  scratchV.set(0, 0, -1).applyQuaternion(scratchQ);
+  if (Math.abs(scratchV.y) > 0.65) return;
+
+  const ct = chassis.translation();
+  const at = axle.body.translation();
+  scratchV.set(at.x - ct.x, at.y - ct.y, at.z - ct.z);
+  scratchV.applyQuaternion(scratchQ.clone().invert());
+  const pen = scratchV.y - HANG_RAIL_Y;
+  if (pen <= 0.002) return;
+
+  const cv = chassis.linvel();
+  const av = axle.body.linvel();
+  const closingY = av.y - cv.y;
+  let force = HANG_K1 * pen + HANG_K2 * pen * pen + HANG_C * Math.max(0, closingY);
+  force = clamp(force, 0, HANG_FORCE_CAP);
+  const impulse = force * dt;
+  chassis.applyImpulseAtPoint({ x: 0, y: impulse, z: 0 }, { x: at.x, y: at.y, z: at.z }, true);
+}
+

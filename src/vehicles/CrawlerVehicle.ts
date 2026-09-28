@@ -1,4 +1,4 @@
-﻿import RAPIER from "@dimforge/rapier3d-compat";
+import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
 import type { DriveInput } from "../input/Input.ts";
 import { CHASSIS_GROUPS } from "../physics/collisionGroups.ts";
@@ -18,7 +18,7 @@ import {
   resetHubDriveState,
   type HubDriveState,
 } from "./kitHubDrive.ts";
-import { applyKitLocate, buildKitLocate, type KitLocateRuntime } from "./kitLocate.ts";
+import { applyHangCeiling, applyKitLocate, buildKitLocate, type KitLocateRuntime } from "./kitLocate.ts";
 import type { KitWheelDef, RigDef } from "./types.ts";
 import {
   buildScxChassisVisual,
@@ -123,6 +123,12 @@ export class CrawlerVehicle {
       applyCoilovers(this.chassisBody, this.kit.axles, this.coilovers, dt);
       if (this.locate) {
         applyKitLocate(this.chassisBody, this.kit.axles, this.locate, dt);
+      }
+      // Soft world-Y hang: drive-armed + not steering.
+      if (Math.abs(input.steer) < 0.15 && Math.abs(input.throttle) > 0.2) {
+        for (const axle of this.kit.axles.values()) {
+          applyHangCeiling(this.chassisBody, axle, dt);
+        }
       }
       const hubWheels = this.wheels.flatMap((w) => {
         if (!w.kitWheel) return [];

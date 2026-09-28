@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Headless autonomous crawler suite (no browser).
  *
  *   npm run crawl-test
@@ -43,6 +43,10 @@ const MAX_AXLE_YAW_RAM = 0.85;
 const MIN_BUMP_FRONT_HANG = 0.008;
 /** Play-path crumple floor (stairs / ramp lip) — hang must stay non-negative. */
 const MIN_PLAY_HANG = 0.0;
+/** Axle center must stay below rail underside in chassis frame (play sit-on-axle). */
+const MAX_AXLE_LOCAL_Y = -0.020;
+/** Max |axleLocal.z - rest.z| — soft links otherwise migrate axle past pads (~14cm). */
+const MAX_AXLE_STATION_DRIFT = 0.16;
 
 
 function axleYawAbs(chassis: { rotation: () => { x: number; y: number; z: number; w: number } }, axle: { rotation: () => { x: number; y: number; z: number; w: number } }): number {
@@ -71,6 +75,18 @@ function chassisUpHang(
   const ct = chassis.translation();
   const at = axle.translation();
   return (ct.x - at.x) * up.x + (ct.y - at.y) * up.y + (ct.z - at.z) * up.z;
+}
+
+/** Axle center in chassis local frame. */
+function axleInChassis(
+  chassis: { translation: () => { x: number; y: number; z: number }; rotation: () => { x: number; y: number; z: number; w: number } },
+  axle: { translation: () => { x: number; y: number; z: number } }
+): THREE.Vector3 {
+  const cr = chassis.rotation();
+  const inv = new THREE.Quaternion(cr.x, cr.y, cr.z, cr.w).invert();
+  const ct = chassis.translation();
+  const at = axle.translation();
+  return new THREE.Vector3(at.x - ct.x, at.y - ct.y, at.z - ct.z).applyQuaternion(inv);
 }
 
 type ScenarioReport = {
@@ -394,7 +410,10 @@ async function scenarioBumpHang(): Promise<ScenarioReport> {
   };
 }
 
-﻿/** Flat W throttle: neither axle may fold under / through the chassis (accel squat). */
+/** Flat W throttle: hang + rail clearance + longitudinal station (play-shaped).
+ * Prior hang-only gate was false-green: COM hang stayed >=19mm while rear axle rose
+ * through the rails (localY=-0.019) and front axle drifted 14cm aft past pads.
+ */
 async function scenarioThrottleHang(): Promise<ScenarioReport> {
   const failures: GateFailure[] = [];
   const h = await createHarness();
@@ -409,18 +428,31 @@ async function scenarioThrottleHang(): Promise<ScenarioReport> {
   const rear = kit.axles.get("rear")!;
   const restF = chassisUpHang(h.vehicle.chassisBody, front.body);
   const restR = chassisUpHang(h.vehicle.chassisBody, rear.body);
+  const restFz = front.restLocal.z;
+  const restRz = rear.restLocal.z;
   let minHangF = restF;
   let minHangR = restR;
+  let maxLocalYF = -999;
+  let maxLocalYR = -999;
+  let maxDriftF = 0;
+  let maxDriftR = 0;
   let maxSpeed = 0;
   let minUpright = 1;
   let peak = 0;
   const z0 = h.vehicle.chassisBody.translation().z;
-  for (let i = 0; i < 180; i += 1) {
+  for (let i = 0; i < 240; i += 1) {
     step(h, { throttle: 1, steer: 0, reset: false });
-    const t = h.vehicle.chassisBody.translation();
+    const chassis = h.vehicle.chassisBody;
+    const t = chassis.translation();
     peak = Math.max(peak, z0 - t.z);
-    minHangF = Math.min(minHangF, chassisUpHang(h.vehicle.chassisBody, front.body));
-    minHangR = Math.min(minHangR, chassisUpHang(h.vehicle.chassisBody, rear.body));
+    minHangF = Math.min(minHangF, chassisUpHang(chassis, front.body));
+    minHangR = Math.min(minHangR, chassisUpHang(chassis, rear.body));
+    const lf = axleInChassis(chassis, front.body);
+    const lr = axleInChassis(chassis, rear.body);
+    maxLocalYF = Math.max(maxLocalYF, lf.y);
+    maxLocalYR = Math.max(maxLocalYR, lr.y);
+    maxDriftF = Math.max(maxDriftF, Math.abs(lf.z - restFz));
+    maxDriftR = Math.max(maxDriftR, Math.abs(lr.z - restRz));
     maxSpeed = Math.max(maxSpeed, speed(h.vehicle));
     minUpright = Math.min(minUpright, uprightY(h.vehicle));
   }
@@ -438,12 +470,49 @@ async function scenarioThrottleHang(): Promise<ScenarioReport> {
     minHangR >= MIN_BUMP_FRONT_HANG,
     `minHangR=${minHangR.toFixed(3)} need>=${MIN_BUMP_FRONT_HANG}`
   );
+  check(
+    failures,
+    "thr_rail_front",
+    maxLocalYF <= MAX_AXLE_LOCAL_Y,
+    `maxLocalYF=${maxLocalYF.toFixed(4)} need<=${MAX_AXLE_LOCAL_Y}`
+  );
+  check(
+    failures,
+    "thr_rail_rear",
+    maxLocalYR <= MAX_AXLE_LOCAL_Y,
+    `maxLocalYR=${maxLocalYR.toFixed(4)} need<=${MAX_AXLE_LOCAL_Y}`
+  );
+  check(
+    failures,
+    "thr_station_front",
+    maxDriftF <= MAX_AXLE_STATION_DRIFT,
+    `maxDriftF=${maxDriftF.toFixed(4)} need<=${MAX_AXLE_STATION_DRIFT}`
+  );
+  check(
+    failures,
+    "thr_station_rear",
+    maxDriftR <= MAX_AXLE_STATION_DRIFT,
+    `maxDriftR=${maxDriftR.toFixed(4)} need<=${MAX_AXLE_STATION_DRIFT}`
+  );
   check(failures, "thr_upright_min", minUpright >= 0.55, `minUpright=${minUpright.toFixed(3)}`);
   check(failures, "thr_no_explode", maxSpeed <= MAX_SPEED, `maxSpeed=${maxSpeed.toFixed(3)}`);
   return {
     name: "throttle_hang",
     ok: failures.length === 0,
-    metrics: { restF, restR, minHangF, minHangR, minHang, peak, maxSpeed, minUpright },
+    metrics: {
+      restF,
+      restR,
+      minHangF,
+      minHangR,
+      minHang,
+      maxLocalYF,
+      maxLocalYR,
+      maxDriftF,
+      maxDriftR,
+      peak,
+      maxSpeed,
+      minUpright,
+    },
     failures,
   };
 }
@@ -503,6 +572,8 @@ const thresholds = {
   MAX_AXLE_YAW_RAM,
   MIN_BUMP_FRONT_HANG,
   MIN_PLAY_HANG,
+  MAX_AXLE_LOCAL_Y,
+  MAX_AXLE_STATION_DRIFT,
 };
 
 const reports: ScenarioReport[] = [];

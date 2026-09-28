@@ -1,4 +1,4 @@
-﻿import { fileURLToPath } from "node:url";
+import { fileURLToPath } from "node:url";
 import * as THREE from "three";
 import { loadStockRig } from "../src/data/loadRig.ts";
 import { PhysicsWorld } from "../src/physics/PhysicsWorld.ts";
@@ -96,15 +96,8 @@ export async function runIdleSettle(seconds = 5, dt = 1 / 60): Promise<SettleMet
     : 0;
 
   // Drive smoke: throttle forward.
-  const z0 = vehicle.chassisBody.translation().z;
-  for (let i = 0; i < 200; i += 1) {
-    vehicle.preStep(physics.world, { throttle: 1, steer: 0, reset: false }, dt);
-    physics.step(dt);
-    vehicle.syncMeshes();
-  }
-  const driveDeltaZ = z0 - vehicle.chassisBody.translation().z;
-
-  // Steer smoke: expect yaw response.
+  // Steer / reverse BEFORE sustained W drive. Drive-armed hang during W warm-starts
+  // contacts and starves post-reset steer yaw (false settle fail).
   vehicle.reset();
   for (let i = 0; i < 30; i += 1) {
     vehicle.preStep(physics.world, { throttle: 0, steer: 0, reset: false }, dt);
@@ -119,7 +112,7 @@ export async function runIdleSettle(seconds = 5, dt = 1 / 60): Promise<SettleMet
     ),
     "YXZ"
   ).y;
-  for (let i = 0; i < 100; i += 1) {
+  for (let i = 0; i < 140; i += 1) {
     vehicle.preStep(physics.world, { throttle: 0.7, steer: 1, reset: false }, dt);
     physics.step(dt);
     vehicle.syncMeshes();
@@ -135,13 +128,11 @@ export async function runIdleSettle(seconds = 5, dt = 1 / 60): Promise<SettleMet
   ).y;
   const steerYaw = yawAfter - yawBefore;
 
-  // Reverse steer smoke: throttle back + steer should yaw (tail swing).
   vehicle.reset();
   for (let i = 0; i < 40; i += 1) {
     vehicle.preStep(physics.world, { throttle: 0, steer: 0, reset: false }, dt);
     physics.step(dt);
   }
-  // Build reverse speed first.
   for (let i = 0; i < 90; i += 1) {
     vehicle.preStep(physics.world, { throttle: -1, steer: 0, reset: false }, dt);
     physics.step(dt);
@@ -171,6 +162,20 @@ export async function runIdleSettle(seconds = 5, dt = 1 / 60): Promise<SettleMet
     "YXZ"
   ).y;
   const reverseSteerYaw = revYawAfter - revYawBefore;
+
+  // Drive smoke last (hang may arm).
+  vehicle.reset();
+  for (let i = 0; i < 40; i += 1) {
+    vehicle.preStep(physics.world, { throttle: 0, steer: 0, reset: false }, dt);
+    physics.step(dt);
+  }
+  const z0 = vehicle.chassisBody.translation().z;
+  for (let i = 0; i < 200; i += 1) {
+    vehicle.preStep(physics.world, { throttle: 1, steer: 0, reset: false }, dt);
+    physics.step(dt);
+    vehicle.syncMeshes();
+  }
+  const driveDeltaZ = z0 - vehicle.chassisBody.translation().z;
 
   return {
     maxAbsVy,
