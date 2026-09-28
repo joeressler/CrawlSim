@@ -22,12 +22,32 @@ The ramp is straight ahead of spawn. A box ledge about one tire radius tall sits
 Handling, size, wheel layout, spawn, and camera follow offset live in JSON.
 
 1. Copy [`src/data/rigs/stock.json`](src/data/rigs/stock.json).
-2. Match the `RigDef` shape in [`src/vehicles/types.ts`](src/vehicles/types.ts).
-3. Point the loader in [`src/data/loadRig.ts`](src/data/loadRig.ts) at the new file (or add a switch later). No game-loop changes.
+2. Match the `RawRigJson` / `RigDef` shapes in [`src/vehicles/types.ts`](src/vehicles/types.ts).
+3. Prefer the Strategy B **kit BOM** (`kit.chassis`, `axles`, `links`, `shocks`, `wheels`, `drive`). [`loadRig.ts`](src/data/loadRig.ts) validates mounts and fills legacy `chassis` / `wheels[].offset` / `suspension` so the existing chassis-ray drive path stays unchanged.
+4. Legacy-only JSON (no `kit`) still loads if it already has `chassis`, `wheels`, and `suspension`.
+5. Point the loader in [`src/data/loadRig.ts`](src/data/loadRig.ts) at the new file (or add a switch later). No game-loop changes.
 
-### Suspension and grip fields
+### Kit BOM fields (Strategy B)
 
-Shared block `suspension` (override any of `restLength`, `springK`, `damperC`, `mu` on a single wheel):
+Top-level: `parts`, `spawn`, `maxSpeed`, `cameraOffset`, `kit`.
+
+| Field | Role |
+| --- | --- |
+| `parts` | String ids for chassis / tires / motor / battery / axles / links / shocks (garage swap later) |
+| `kit.chassis.halfExtents` | Cuboid half-size (m) |
+| `kit.chassis.mass` | Chassis mass (kg) |
+| `kit.chassis.mounts[]` | Named hardpoints on the chassis (`id`, local `offset`) |
+| `kit.axles[]` | Solid axles: `id`, rest `offset` in chassis frame, local `mounts[]` |
+| `kit.links[]` | Control arms: `id`, `from` / `to` as `{ part, mount }` (`part` is `"chassis"` or an axle id) |
+| `kit.shocks[]` | Coilovers: `from` / `to` mounts plus `restLength`, `springK`, `damperC`, `maxTravel` |
+| `kit.wheels[]` | Hubs on an axle: `axle`, `hubOffset` (axle-local), `radius`, `width`, `driven`, `steered` |
+| `kit.drive` | Shared grip / motor caps: `mu`, `driveTorque`, `maxForce`, `steerAngle`, `maxAccel`, `minNormalY`, `minUpright` |
+
+Phase 1 is data + validation only. No axle rigid bodies, no joints, no shock force solver, no collision-group changes. The loader averages shock rates into legacy `suspension` and sets each `wheel.offset = axle.offset + hubOffset`.
+
+### Legacy suspension and grip fields
+
+Filled automatically from the kit (or authored directly in legacy JSON). Shared block `suspension` (override any of `restLength`, `springK`, `damperC`, `mu` on a single wheel):
 
 | Field | Role |
 | --- | --- |
@@ -43,10 +63,10 @@ Shared block `suspension` (override any of `restLength`, `springK`, `damperC`, `
 | `maxTravel` | Max strut compression from `restLength` (m). Tire cannot extend past restLength or compress past restLength − maxTravel |
 | `minUpright` | Chassis-up · world-up below this turns off tire support and drive so the rig cannot crawl upside down |
 
-Per wheel: `offset` (hardpoint on the chassis), `radius` (tire radius and rolling radius), `width`, `driven`, `steered`. `maxSpeed` clamps planar speed. Chassis `halfExtents.y` and hardpoint height set belly clearance so the cuboid does not catch a ledge before the tires crest it. Tire meshes are visual only — they have no colliders.
+Per wheel (legacy): `offset` (hardpoint on the chassis), `radius`, `width`, `driven`, `steered`. `maxSpeed` clamps planar speed. Chassis `halfExtents.y` and hardpoint height set belly clearance so the cuboid does not catch a ledge before the tires crest it. Tire meshes are visual only — they have no colliders.
 
 ## Adding a part later
 
-`PartIds` on `RigDef` (`chassis`, `tires`, `motor`, `battery`) are string ids only in this slice. A garage can swap those ids and rebuild `CrawlerVehicle` from a new `RigDef` without rewriting `Game`.
+`PartIds` on `RigDef` (`chassis`, `tires`, `motor`, `battery`, optional `axles` / `links` / `shocks`) are string ids only in this slice. A garage can swap those ids and rebuild `CrawlerVehicle` from a new `RigDef` without rewriting `Game`.
 
-Crawl forces live in [`src/vehicles/drive.ts`](src/vehicles/drive.ts): one suspension ray and a friction clamp per tire. Next step is real wheel joints, then lockers.
+Crawl forces live in [`src/vehicles/drive.ts`](src/vehicles/drive.ts): one suspension ray and a friction clamp per tire. Kit mounts/links/shocks are the BOM for later axle bodies and joints; the chassis-ray path is still what drives today.
