@@ -9,11 +9,11 @@
     "halfExtents": { "x": 0.38, "y": 0.1, "z": 0.34 },
     "mass": 5
   },
-  "spawn": { "x": 0, "y": 0.5, "z": 5 },
+  "spawn": { "x": 0, "y": 0.65, "z": 5 },
   "wheels": [
     {
       "id": "fl",
-      "offset": { "x": -0.48, "y": -0.1, "z": -0.48 },
+      "offset": { "x": -0.48, "y": 0.02, "z": -0.48 },
       "radius": 0.24,
       "width": 0.18,
       "driven": true,
@@ -21,7 +21,7 @@
     },
     {
       "id": "fr",
-      "offset": { "x": 0.48, "y": -0.1, "z": -0.48 },
+      "offset": { "x": 0.48, "y": 0.02, "z": -0.48 },
       "radius": 0.24,
       "width": 0.18,
       "driven": true,
@@ -29,7 +29,7 @@
     },
     {
       "id": "rl",
-      "offset": { "x": -0.48, "y": -0.1, "z": 0.48 },
+      "offset": { "x": -0.48, "y": 0.02, "z": 0.48 },
       "radius": 0.24,
       "width": 0.18,
       "driven": true,
@@ -37,7 +37,7 @@
     },
     {
       "id": "rr",
-      "offset": { "x": 0.48, "y": -0.1, "z": 0.48 },
+      "offset": { "x": 0.48, "y": 0.02, "z": 0.48 },
       "radius": 0.24,
       "width": 0.18,
       "driven": true,
@@ -45,15 +45,17 @@
     }
   ],
   "suspension": {
-    "restLength": 0.42,
-    "springK": 300,
-    "damperC": 48,
+    "restLength": 0.55,
+    "springK": 125,
+    "damperC": 38,
     "mu": 1.45,
     "driveTorque": 22,
     "maxForce": 160,
     "steerAngle": 0.55,
     "maxAccel": 4.5,
-    "minNormalY": 0.4
+    "minNormalY": 0.4,
+    "maxTravel": 0.22,
+    "minUpright": 0.2
   },
   "maxSpeed": 2.2,
   "cameraOffset": { "x": 0, "y": 4, "z": 8 }

@@ -5,11 +5,15 @@
  * Throttle slews a longitudinal target speed; `maxAccel` and `driveTorque / radius` cap the force.
  * Drive fades when the axle that would lift is unloaded, so the steering tires stay down.
  * Contacts whose normal is too steep are ignored so a ledge face cannot grab a tire.
+ * Unloaded tires also probe a short lip cast beside the tread so a hanging wheel finds
+ * a ledge top before the visual cylinder clips through it.
  * Steering rotates the front tire basis. Lateral grip yaws the chassis and
  * pulls its velocity along that heading, forward or reverse. The roll part of
  * that force is cancelled so a steer cannot lift a tire. It fades if a side
  * unloads or fewer than three tires are down.
- * Next upgrade: real wheel joints / springs (replacing these ray struts), then lockers.
+ * Extension is clamped to restLength and compression to restLength − maxTravel along
+ * the chassis-down strut. If the chassis is upside-down past minUpright, tires unload.
+ * Next upgrade: real wheel joints / limited-travel struts (replacing these rays), then lockers.
  */
 import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
@@ -44,6 +48,8 @@ export type WheelSim = {
   castX: number;
   castY: number;
   castZ: number;
+  /** 0 when the tire just found ground, 1 after it has settled. */
+  plant: number;
 };
 
 export type DriveState = {
@@ -87,6 +93,8 @@ type WheelContact = {
   accLat: number;
   /** 0 on a ledge lip, 1 on flat support. Scales μ. */
   grip: number;
+  /** How settled this tire is. Fresh contacts stay soft so they do not bounce off a lip. */
+  gripIn: number;
 };
 
 const q = new THREE.Quaternion();
@@ -112,6 +120,7 @@ export function createWheelSims(rig: RigDef): WheelSim[] {
     castX: 0,
     castY: -1,
     castZ: 0,
+    plant: 0,
   }));
 }
 
@@ -123,6 +132,7 @@ export function resetWheelSims(wheels: WheelSim[]): void {
     wheel.castX = 0;
     wheel.castY = -1;
     wheel.castZ = 0;
+    wheel.plant = 0;
   }
 }
 
@@ -178,6 +188,111 @@ function castSupport(
   return { dist: hit.timeOfImpact, nx, ny, nz, dx: ux, dy: uy, dz: uz, support };
 }
 
+/** Probe beside the tread so a hanging tire finds a ledge top before the cylinder clips it. */
+function castLipAssist(
+  world: RAPIER.World,
+  hx: number,
+  hy: number,
+  hz: number,
+  dx: number,
+  dy: number,
+  dz: number,
+  upx: number,
+  upy: number,
+  upz: number,
+  quat: THREE.Quaternion,
+  wheel: WheelSim,
+  steer: number,
+  chassis: RAPIER.RigidBody,
+  gx: number,
+  gy: number,
+  gz: number,
+  minNormalY: number
+): SupportHit | null {
+  const dirLen = Math.hypot(dx, dy, dz) || 1;
+  const ux = dx / dirLen;
+  const uy = dy / dirLen;
+  const uz = dz / dirLen;
+  const r = wheel.radius;
+  const lift = 0.06;
+  const reach = r * 1.05;
+  const side = Math.sign(wheel.offset.x) || 1;
+  basis.set(side, 0, 0).applyQuaternion(quat);
+  const sx = basis.x;
+  const sy = basis.y;
+  const sz = basis.z;
+  scratchForward.set(0, 0, -1).applyQuaternion(quat);
+  if (steer !== 0) scratchForward.applyAxisAngle(basisUp.set(0, 1, 0).applyQuaternion(quat), steer);
+  const offsets = [
+    { x: sx * reach, y: sy * reach, z: sz * reach },
+    { x: -sx * reach, y: -sy * reach, z: -sz * reach },
+    { x: scratchForward.x * reach, y: scratchForward.y * reach, z: scratchForward.z * reach },
+    { x: -scratchForward.x * reach, y: -scratchForward.y * reach, z: -scratchForward.z * reach },
+    { x: (sx + scratchForward.x) * reach * 0.7, y: (sy + scratchForward.y) * reach * 0.7, z: (sz + scratchForward.z) * reach * 0.7 },
+    { x: (-sx + scratchForward.x) * reach * 0.7, y: (-sy + scratchForward.y) * reach * 0.7, z: (-sz + scratchForward.z) * reach * 0.7 },
+  ];
+  let best: SupportHit | null = null;
+  for (const offset of offsets) {
+    const ox = hx + offset.x + upx * lift;
+    const oy = hy + offset.y + upy * lift;
+    const oz = hz + offset.z + upz * lift;
+    const hit = castSupport(world, ox, oy, oz, ux, uy, uz, wheel.restLength + lift, chassis, gx, gy, gz, minNormalY);
+    if (!hit) continue;
+    const hxHit = ox + ux * hit.dist;
+    const hyHit = oy + uy * hit.dist;
+    const hzHit = oz + uz * hit.dist;
+    const fromHub = (hxHit - hx) * ux + (hyHit - hy) * uy + (hzHit - hz) * uz;
+    if (fromHub < 0.02 || fromHub > wheel.restLength) continue;
+    const candidate: SupportHit = {
+      dist: fromHub,
+      nx: hit.nx,
+      ny: hit.ny,
+      nz: hit.nz,
+      dx: ux,
+      dy: uy,
+      dz: uz,
+      support: hit.support,
+    };
+    best = preferHigher(hx, hy, hz, best, candidate);
+  }
+  return best;
+}
+
+function preferHigher(
+  _hx: number,
+  hy: number,
+  _hz: number,
+  a: SupportHit | null,
+  b: SupportHit | null
+): SupportHit | null {
+  if (!a) return b;
+  if (!b) return a;
+  const ay = hy + a.dy * a.dist;
+  const by = hy + b.dy * b.dist;
+  // Prefer the contact that keeps the tire higher (less penetration through a lip).
+  if (by > ay + 0.01) return b;
+  if (ay > by + 0.01) return a;
+  return a.dist <= b.dist ? a : b;
+}
+
+/** Map a world hit back onto the chassis-down strut length from the hub. */
+function projectOntoStrut(
+  hx: number,
+  hy: number,
+  hz: number,
+  hit: SupportHit,
+  dx: number,
+  dy: number,
+  dz: number
+): number | null {
+  const px = hx + hit.dx * hit.dist;
+  const py = hy + hit.dy * hit.dist;
+  const pz = hz + hit.dz * hit.dist;
+  const along = (px - hx) * dx + (py - hy) * dy + (pz - hz) * dz;
+  if (along < 0.02) return null;
+  return along;
+}
+
 export function applyDrive(
   world: RAPIER.World,
   chassis: RAPIER.RigidBody,
@@ -214,10 +329,26 @@ export function applyDrive(
   const gx = gravity.x;
   const gy = gravity.y;
   const gz = gravity.z;
+  const gMag = Math.hypot(gx, gy, gz) || 9.81;
+  const upx = -gx / gMag;
+  const upy = -gy / gMag;
+  const upz = -gz / gMag;
+  const upright = basisUp.x * upx + basisUp.y * upy + basisUp.z * upz;
+  if (upright < rig.suspension.minUpright) {
+    for (const wheel of wheels) {
+      wheel.suspensionLength = wheel.restLength;
+      wheel.plant = 0;
+      wheel.castX = dx;
+      wheel.castY = dy;
+      wheel.castZ = dz;
+    }
+    return;
+  }
 
   const contacts: WheelContact[] = [];
 
   for (const wheel of wheels) {
+    const minLength = Math.max(0.05, wheel.restLength - rig.suspension.maxTravel);
     const steer = wheel.steered ? steerCmd * rig.suspension.steerAngle : 0;
     wheel.steer = steer;
 
@@ -226,10 +357,8 @@ export function applyDrive(
     const hy = oy + basis.y;
     const hz = oz + basis.z;
 
-    const gMag = Math.hypot(gx, gy, gz) || 9.81;
-    const upx = -gx / gMag;
-    const upy = -gy / gMag;
-    const upz = -gz / gMag;
+    // Strut axis is chassis-down only. World-down / lip assists are only for finding
+    // the same support surface while the chassis is still mostly upright.
     let probed = castSupport(
       world,
       hx,
@@ -245,35 +374,70 @@ export function applyDrive(
       gz,
       rig.suspension.minNormalY
     );
-    const level = basisUp.x * upx + basisUp.y * upy + basisUp.z * upz;
+    scratchForward.set(0, 0, -1).applyQuaternion(q);
+    const noseDown = -(scratchForward.x * upx + scratchForward.y * upy + scratchForward.z * upz);
     let immediate = false;
-    if (!probed && level < 0.78) {
-      const lift = 0.08;
-      scratchForward.set(0, 0, -1).applyQuaternion(q);
-      const caught = castSupport(
+    if (upright > 0.45) {
+      const downx = -upx;
+      const downy = -upy;
+      const downz = -upz;
+      if (!probed && noseDown > 0.5) {
+        const lift = 0.08;
+        const caught = castSupport(
+          world,
+          hx + scratchForward.x * wheel.radius * 0.85 + upx * lift,
+          hy + scratchForward.y * wheel.radius * 0.85 + upy * lift,
+          hz + scratchForward.z * wheel.radius * 0.85 + upz * lift,
+          downx,
+          downy,
+          downz,
+          wheel.restLength + lift,
+          chassis,
+          gx,
+          gy,
+          gz,
+          rig.suspension.minNormalY
+        );
+        if (caught) {
+          const fromHub = projectOntoStrut(hx, hy, hz, caught, dx, dy, dz);
+          if (fromHub !== null) {
+            probed = { ...caught, dist: fromHub, dx, dy, dz };
+            immediate = true;
+          }
+        }
+      }
+      const lip = castLipAssist(
         world,
-        hx + scratchForward.x * wheel.radius * 0.85 + upx * lift,
-        hy + scratchForward.y * wheel.radius * 0.85 + upy * lift,
-        hz + scratchForward.z * wheel.radius * 0.85 + upz * lift,
-        -upx,
-        -upy,
-        -upz,
-        wheel.restLength + lift,
+        hx,
+        hy,
+        hz,
+        downx,
+        downy,
+        downz,
+        upx,
+        upy,
+        upz,
+        q,
+        wheel,
+        steer,
         chassis,
         gx,
         gy,
         gz,
         rig.suspension.minNormalY
       );
-      if (caught) {
-        caught.dist = Math.max(0.02, caught.dist - lift);
-        probed = caught;
-        immediate = true;
+      if (lip) {
+        const fromHub = projectOntoStrut(hx, hy, hz, lip, dx, dy, dz);
+        if (fromHub !== null) {
+          const strutHit: SupportHit = { ...lip, dist: fromHub, dx, dy, dz };
+          if (!probed || strutHit.dist < probed.dist) probed = strutHit;
+        }
       }
     }
 
     if (!probed) {
       wheel.suspensionLength = wheel.restLength;
+      wheel.plant = 0;
       wheel.castX = dx;
       wheel.castY = dy;
       wheel.castZ = dz;
@@ -283,22 +447,28 @@ export function applyDrive(
       continue;
     }
 
-    const dist = probed.dist;
+    // Contact distance along the strut only, clamped to [bump stop, rest].
+    const dist = clampImpulse(probed.dist, minLength, wheel.restLength);
     const nx = probed.nx;
     const ny = probed.ny;
     const nz = probed.nz;
-    const rdx = probed.dx;
-    const rdy = probed.dy;
-    const rdz = probed.dz;
+    const rdx = dx;
+    const rdy = dy;
+    const rdz = dz;
     const support = probed.support;
 
     const previousLength = wheel.suspensionLength;
-    const leftSurface = !immediate && previousLength < wheel.restLength - 0.02 && dist > previousLength + 0.045;
-    const usedDist = immediate
-      ? dist
-      : dist < previousLength
-        ? Math.max(dist, previousLength - MAX_COMPRESS_RATE * dt)
-        : Math.min(dist, previousLength + MAX_EXTEND_RATE * dt);
+    const wasAir = wheel.plant < 0.05 || previousLength >= wheel.restLength - 0.01;
+    const leftSurface = !immediate && !wasAir && previousLength < wheel.restLength - 0.02 && dist > previousLength + 0.045;
+    const usedDist = clampImpulse(
+      immediate || wasAir
+        ? dist
+        : dist < previousLength
+          ? Math.max(dist, previousLength - MAX_COMPRESS_RATE * dt)
+          : Math.min(dist, previousLength + MAX_EXTEND_RATE * dt),
+      minLength,
+      wheel.restLength
+    );
     wheel.suspensionLength = usedDist;
     wheel.castX = rdx;
     wheel.castY = rdy;
@@ -309,22 +479,25 @@ export function applyDrive(
     // Positive when the hardpoint moves along the outward normal (suspension extending).
     const closingSpeed = hardVel.x * nx + hardVel.y * ny + hardVel.z * nz;
     const spring = wheel.springK * (wheel.restLength - usedDist);
-    const fnRaw = spring - wheel.damperC * closingSpeed;
+    const damp = wasAir && closingSpeed < 0 ? 0 : wheel.damperC * closingSpeed;
+    const fnRaw = spring - damp;
     const fnCap = immediate ? chassis.mass() * gMag * 1.35 : (3 * chassis.mass() * gMag) / wheels.length;
-    const fn = Math.min(fnRaw, fnCap);
-
+    const gripIn = immediate ? 1 : wasAir ? 0.45 : 0.45 + 0.55 * wheel.plant;
+    const fn = Math.min(Math.max(fnRaw, 0), fnCap) * gripIn;
     if (fn <= 0) {
+      wheel.plant = 0;
       if (wheel.driven && input.throttle !== 0) {
         wheel.spin += (input.throttle * rig.maxSpeed * dt) / wheel.radius;
       }
       continue;
     }
+    wheel.plant = Math.min(1, wheel.plant + dt / 0.14);
 
-    const px = hx + rdx * dist;
-    const py = hy + rdy * dist;
-    const pz = hz + rdz * dist;
+    const px = hx + rdx * usedDist;
+    const py = hy + rdy * usedDist;
+    const pz = hz + rdz * usedDist;
     chassis.applyImpulseAtPoint(
-      { x: upx * fn * dt, y: upy * fn * dt, z: upz * fn * dt },
+      { x: nx * fn * dt, y: ny * fn * dt, z: nz * fn * dt },
       { x: px, y: py, z: pz },
       true
     );
@@ -382,10 +555,10 @@ export function applyDrive(
       accLong: 0,
       accLat: 0,
       grip: gripFromSupport(support, rig.suspension.minNormalY),
+      gripIn,
     });
   }
 
-  const gMag = Math.hypot(gx, gy, gz) || 9.81;
   const weight = chassis.mass() * gMag;
   let frontFn = 0;
   let rearFn = 0;
@@ -456,7 +629,7 @@ function solveContact(
     -motor - contact.accLong,
     motor - contact.accLong
   );
-  const latGrip = reversing && sim.steered ? 0.25 : 1;
+  const latGrip = (reversing && sim.steered ? 0.25 : 1) * contact.gripIn;
   const latRoom = maxFric * Math.max(0, rollScale) * latGrip;
   const wantLat = clampImpulse(
     (-slip.vLat / contact.invLat) * FRICTION_RELAX,
@@ -569,7 +742,7 @@ function applySteer(
   if (steerInput === 0 || rollScale <= 0) return;
   for (const contact of contacts) {
     if (!contact.sim.steered) continue;
-    const cap = frictionLimit(contact, rig.suspension.maxForce) * dt * rollScale;
+    const cap = frictionLimit(contact, rig.suspension.maxForce) * dt * rollScale * contact.gripIn;
     const used = Math.hypot(contact.accLong, contact.accLat);
     const room = Math.sqrt(Math.max(0, cap * cap - used * used));
     const jLat = clampImpulse(steerInput * cap * 0.1, -room, room);

@@ -40,6 +40,8 @@ Shared block `suspension` (override any of `restLength`, `springK`, `damperC`, `
 | `steerAngle` | Front steer limit (radians) |
 | `maxAccel` | How fast throttle can change speed (m/s²). Stops launch wheelies and reverse flips |
 | `minNormalY` | Lowest world-up component of a contact normal that still supports the tire. Steeper faces are ignored so a ledge lip does not catch |
+| `maxTravel` | Max strut compression from `restLength` (m). Tire cannot extend past restLength or compress past restLength − maxTravel |
+| `minUpright` | Chassis-up · world-up below this turns off tire support and drive so the rig cannot crawl upside down |
 
 Per wheel: `offset` (hardpoint on the chassis), `radius` (tire radius and rolling radius), `width`, `driven`, `steered`. `maxSpeed` clamps planar speed. Chassis `halfExtents.y` and hardpoint height set belly clearance so the cuboid does not catch a ledge before the tires crest it. Tire meshes are visual only — they have no colliders.
 

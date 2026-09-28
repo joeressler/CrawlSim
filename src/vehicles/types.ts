@@ -44,6 +44,10 @@ export type SuspensionDef = {
   maxAccel: number;
   /** Ignore contacts flatter than this world-up component so ledge faces do not grab. */
   minNormalY: number;
+  /** How far the strut may compress from `restLength` (m). Extension never exceeds restLength. */
+  maxTravel: number;
+  /** Chassis-up · world-up below this disables tire support/drive (no upside-down crawling). */
+  minUpright: number;
 };
 
 export type RigDef = {
