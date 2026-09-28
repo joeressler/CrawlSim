@@ -18,6 +18,7 @@ import {
   resetHubDriveState,
   type HubDriveState,
 } from "./kitHubDrive.ts";
+import { applyKitLocate, buildKitLocate, type KitLocateRuntime } from "./kitLocate.ts";
 import type { KitWheelDef, RigDef } from "./types.ts";
 import {
   buildScxChassisVisual,
@@ -48,6 +49,7 @@ export class CrawlerVehicle {
   private readonly hubDriveState: HubDriveState;
   private readonly rig: RigDef;
   private readonly kit: KitSuspensionRuntime | null;
+  private readonly locate: KitLocateRuntime | null;
   private readonly coilovers: CoiloverRuntime[];
   private readonly shockVisuals: ShockVisual[];
 
@@ -82,6 +84,10 @@ export class CrawlerVehicle {
       this.chassisBody.setLinearDamping(0.08);
       this.chassisBody.setAngularDamping(0.45);
     }
+    this.locate =
+      this.kit && rig.kit
+        ? buildKitLocate(scene, this.chassisMesh, this.chassisBody, rig.kit, this.kit.axles)
+        : null;
     this.coilovers = this.kit && rig.kit ? buildCoilovers(rig.kit, this.chassisBody, this.kit.axles) : [];
     this.shockVisuals = [];
     for (let i = 0; i < this.coilovers.length; i += 1) {
@@ -114,6 +120,9 @@ export class CrawlerVehicle {
     if (this.kit) {
       // Phase 4: coilovers + hub Coulomb grip. No chassis-ray spring (would double-plant).
       applyCoilovers(this.chassisBody, this.kit.axles, this.coilovers, dt);
+      if (this.locate) {
+        applyKitLocate(this.chassisBody, this.kit.axles, this.locate, dt);
+      }
       const hubWheels = this.wheels.flatMap((w) => {
         if (!w.kitWheel) return [];
         const axle = this.kit!.axles.get(w.kitWheel.axle);
@@ -150,6 +159,9 @@ export class CrawlerVehicle {
   syncMeshes(): void {
     syncRigidBodyToObject(this.chassisBody, this.chassisMesh);
     this.kit?.syncMeshes();
+    if (this.locate && this.kit) {
+      this.locate.syncMeshes(this.chassisBody, this.kit.axles);
+    }
     this.syncShockMeshes();
     for (const wheel of this.wheels) {
       const { sim, mesh, kitWheel } = wheel;
