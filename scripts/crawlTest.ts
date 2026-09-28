@@ -34,6 +34,8 @@ const MIN_LEDGE_Y = 0.12;
 const MIN_RAMP_CLIMB_Y = 0.25;
 /** Axle yaw vs chassis about up — ram must not 180 the axle. */
 const MAX_AXLE_YAW_RAM = 0.85;
+/** Chassis Y - front axle Y under bump/slam - must not crumple onto axle. */
+const MIN_BUMP_FRONT_HANG = 0.008;
 
 
 function axleYawAbs(chassis: { rotation: () => { x: number; y: number; z: number; w: number } }, axle: { rotation: () => { x: number; y: number; z: number; w: number } }): number {
@@ -191,6 +193,96 @@ async function scenarioLedgeCrest(): Promise<ScenarioReport> {
 
 
 /** Ram ledge face with initial velocity — front axle must not 180 spin. */
+
+/** Bump/ledge impact: axle hop + chassis dive must not fold rails onto axle. */
+
+/** Chassis-up separation chassisCOM - axleCOM (m). Positive = axle below rails. */
+function chassisUpHang(
+  chassis: { translation: () => { x: number; y: number; z: number }; rotation: () => { x: number; y: number; z: number; w: number } },
+  axle: { translation: () => { x: number; y: number; z: number } }
+): number {
+  const cr = chassis.rotation();
+  const cq = new THREE.Quaternion(cr.x, cr.y, cr.z, cr.w);
+  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(cq);
+  const ct = chassis.translation();
+  const at = axle.translation();
+  return (ct.x - at.x) * up.x + (ct.y - at.y) * up.y + (ct.z - at.z) * up.z;
+}
+
+async function scenarioBumpHang(): Promise<ScenarioReport> {
+  const failures: GateFailure[] = [];
+  const h = await createHarness();
+  const kit = h.vehicle.kitSuspension();
+  check(failures, "bump_has_kit", !!kit, "kit missing");
+  if (!kit) {
+    return { name: "bump_hang", ok: false, metrics: {}, failures };
+  }
+  const front = kit.axles.get("front")!;
+  const rear = kit.axles.get("rear")!;
+
+  // 1) Axle hop: front axle kicked up like a sharp ledge under the hubs.
+  place(h, 0, 0.22, 3, 0);
+  idle(h, 90);
+  const restHang = chassisUpHang(h.vehicle.chassisBody, front.body);
+  front.body.applyImpulse({ x: 0, y: 2.5, z: 0 }, true);
+  let minHopHang = restHang;
+  let maxSpeed = 0;
+  let minUpright = 1;
+  for (let i = 0; i < 90; i += 1) {
+    step(h, { throttle: 0, steer: 0, reset: false });
+    minHopHang = Math.min(minHopHang, chassisUpHang(h.vehicle.chassisBody, front.body));
+    maxSpeed = Math.max(maxSpeed, speed(h.vehicle));
+    minUpright = Math.min(minUpright, uprightY(h.vehicle));
+  }
+
+  // 2) Chassis dive onto planted axles (fold from above).
+  place(h, 0, 0.22, 3, 0);
+  idle(h, 60);
+  h.vehicle.chassisBody.applyImpulse({ x: 0, y: -2.8, z: 0 }, true);
+  let minDiveHang = chassisUpHang(h.vehicle.chassisBody, front.body);
+  for (let i = 0; i < 90; i += 1) {
+    step(h, { throttle: 0, steer: 0, reset: false });
+    minDiveHang = Math.min(
+      minDiveHang,
+      chassisUpHang(h.vehicle.chassisBody, front.body),
+      chassisUpHang(h.vehicle.chassisBody, rear.body)
+    );
+    maxSpeed = Math.max(maxSpeed, speed(h.vehicle));
+    minUpright = Math.min(minUpright, uprightY(h.vehicle));
+  }
+
+  // 3) Short stair-face slam (one riser), not a full course tip run.
+  place(h, -6.5, 0.22, 2.2, 0);
+  idle(h, 60);
+  h.vehicle.chassisBody.setLinvel({ x: 0, y: 0, z: -2.5 }, true);
+  for (const a of kit.axles.values()) {
+    a.body.setLinvel({ x: 0, y: 0, z: -2.5 }, true);
+  }
+  let minSlamHang = chassisUpHang(h.vehicle.chassisBody, front.body);
+  for (let i = 0; i < 75; i += 1) {
+    step(h, { throttle: 1, steer: 0, reset: false });
+    minSlamHang = Math.min(minSlamHang, chassisUpHang(h.vehicle.chassisBody, front.body));
+    maxSpeed = Math.max(maxSpeed, speed(h.vehicle));
+    minUpright = Math.min(minUpright, uprightY(h.vehicle));
+  }
+
+  const minHang = Math.min(minHopHang, minDiveHang, minSlamHang);
+  check(
+    failures,
+    "bump_front_hang",
+    minHang >= MIN_BUMP_FRONT_HANG,
+    `minHang=${minHang.toFixed(3)} (hop=${minHopHang.toFixed(3)} dive=${minDiveHang.toFixed(3)} slam=${minSlamHang.toFixed(3)}) need>=${MIN_BUMP_FRONT_HANG}`
+  );
+  check(failures, "bump_upright_min", minUpright >= 0.40, `minUpright=${minUpright.toFixed(3)}`);
+  check(failures, "bump_no_explode", maxSpeed <= MAX_SPEED, `maxSpeed=${maxSpeed.toFixed(3)}`);
+  return {
+    name: "bump_hang",
+    ok: failures.length === 0,
+    metrics: { restHang, minHopHang, minDiveHang, minSlamHang, minHang, maxSpeed, minUpright },
+    failures,
+  };
+}
+
 async function scenarioAxleRam(): Promise<ScenarioReport> {
   const failures: GateFailure[] = [];
   const h = await createHarness();
@@ -242,6 +334,7 @@ const thresholds = {
   MIN_LEDGE_Y,
   MIN_RAMP_CLIMB_Y,
   MAX_AXLE_YAW_RAM,
+  MIN_BUMP_FRONT_HANG,
 };
 
 const reports: ScenarioReport[] = [];
@@ -249,6 +342,7 @@ reports.push(await scenarioIdleUpright());
 reports.push(await scenarioFlatForward());
 reports.push(await scenarioRampClimb());
 reports.push(await scenarioLedgeCrest());
+reports.push(await scenarioBumpHang());
 reports.push(await scenarioAxleRam());
 
 const ok = reports.every((r) => r.ok);

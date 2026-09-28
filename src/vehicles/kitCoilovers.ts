@@ -1,10 +1,12 @@
-﻿/**
+/**
  * Phase 3 coilovers between chassis/axle shock mounts.
  * restLength = geometric mount distance at build (BOM-true; no rest bias fighting links).
  * Weight preload = mg/n so hang holds at mount geometry without fake rest stretch.
  * Forces along world-up (chassis-up coupled into roll on soft sphericals).
  * Mild L/R anti-roll restores roll stiffness without pumping idle chatter.
  * Compress spring + preload; extension keeps tapered preload + light damper only.
+ * Hang floor + hard bump stop: chassis must not fold through axle on bumps
+ * (spherical impulse joints stretch; extension path alone cannot restore hang).
  * Hub spheres = only plant; no Rapier spring joints.
  */
 import type RAPIER from "@dimforge/rapier3d-compat";
@@ -21,6 +23,10 @@ export type CoiloverRuntime = {
   forceCap: number;
   /** Static support share at mount rest (N). Keeps hang without rest-length bias. */
   preload: number;
+  /** Chassis COM Y - axle COM Y at mount-true build (m). */
+  restHang: number;
+  /** Impact bump-stop force budget (N); higher than ride forceCap. */
+  bumpForceCap: number;
   chassisMount: Vec3;
   axleId: string;
   axleMount: Vec3;
@@ -58,8 +64,9 @@ export function buildCoilovers(
   const out: CoiloverRuntime[] = [];
   const chassisMass = chassis.mass();
   const n = Math.max(1, kit.shocks.length);
-  // Full weight share at mount rest — hang without stretching restLength past BOM.
+  // Full weight share at mount rest - hang without stretching restLength past BOM.
   const preload = (chassisMass * 9.81) / n;
+  const cy = chassis.translation().y;
   for (const shock of kit.shocks) {
     if (shock.from.part !== "chassis") {
       throw new Error(`coilover ${shock.id}: from must be chassis`);
@@ -79,6 +86,9 @@ export function buildCoilovers(
     const damperC = Math.max(shock.damperC, critical * 2.4);
     const maxTravel = Math.min(shock.maxTravel, restLength * 0.4);
     const forceCap = (2.8 * chassisMass * 9.81) / n;
+    // Impact budget: ~1.5x vehicle weight per corner so bump stops are not ride-capped.
+    const bumpForceCap = Math.max(forceCap * 6, (2.5 * chassisMass * 9.81) / n);
+    const restHang = Math.max(0.02, cy - axle.body.translation().y);
     out.push({
       def: shock,
       restLength,
@@ -87,6 +97,8 @@ export function buildCoilovers(
       damperC,
       forceCap,
       preload,
+      restHang,
+      bumpForceCap,
       chassisMount,
       axleId,
       axleMount,
@@ -137,14 +149,21 @@ export function applyCoilovers(
       force = c.springK * compression + c.preload + c.damperC * closingSpeed;
       const bumpDepth = compression - c.maxTravel;
       if (bumpDepth > 0) {
-        force += c.springK * 8 * bumpDepth + c.damperC * 2 * Math.max(0, closingSpeed);
+        // Hard packer: stiff + not clipped by ride forceCap (was the crumple leak).
+        const bump =
+          c.springK * 18 * bumpDepth +
+          c.springK * 260 * bumpDepth * bumpDepth +
+          c.damperC * 4 * Math.max(0, closingSpeed);
+        force += bump;
       }
     } else {
       // Extension: taper preload so gravity can settle; no spring pull fighting links.
       const taper = Math.max(0, 1 + compression / Math.max(1e-3, c.restLength * 0.25));
       force = c.preload * taper + c.damperC * 0.35 * closingSpeed;
     }
-    if (force > c.forceCap) force = c.forceCap;
+    // Ride forces stay soft-capped; bump-stop may use the higher bump budget.
+    const cap = compression > c.maxTravel ? c.bumpForceCap : c.forceCap;
+    if (force > cap) force = cap;
     if (force < -c.forceCap * 0.35) force = -c.forceCap * 0.35;
     samples.push({ coil: c, axle, p0, p1, compression, closingSpeed, force });
   }
@@ -169,7 +188,8 @@ export function applyCoilovers(
     left.force += transfer;
     right.force -= transfer;
     for (const s of [left, right]) {
-      if (s.force > s.coil.forceCap) s.force = s.coil.forceCap;
+      const cap = s.compression > s.coil.maxTravel ? s.coil.bumpForceCap : s.coil.forceCap;
+      if (s.force > cap) s.force = cap;
       if (s.force < -s.coil.forceCap * 0.35) s.force = -s.coil.forceCap * 0.35;
     }
   }
@@ -178,5 +198,70 @@ export function applyCoilovers(
     const impulse = s.force * dt;
     chassis.applyImpulseAtPoint({ x: ux * impulse, y: uy * impulse, z: uz * impulse }, s.p0, true);
     s.axle.body.applyImpulseAtPoint({ x: -ux * impulse, y: -uy * impulse, z: -uz * impulse }, s.p1, true);
+  }
+
+  // Hang floor: when axle hops above the rails (shock often EXTENDS while hang
+  // collapses), ride springs do nothing useful. Soft spring on COM hang restores
+  // separation without Rapier lock joints. Inactive near mount-true rest.
+  applyHangFloors(chassis, axles, coilovers, dt);
+}
+
+/**
+ * Crumple floor on chassis-up COM hang - ONLY past full mechanical travel.
+ * Normal compress to (restHang - maxTravel) is owned by coilovers/bump-stop.
+ * Firing inside that band double-springs the kit and flips axle-ram impacts.
+ * Activates when hang drops below ~1cm (rails folding onto/through the axle).
+ */
+function applyHangFloors(
+  chassis: RAPIER.RigidBody,
+  axles: Map<string, KitAxleRuntime>,
+  coilovers: CoiloverRuntime[],
+  dt: number
+): void {
+  const seen = new Set<string>();
+  const cr = chassis.rotation();
+  scratchQ.set(cr.x, cr.y, cr.z, cr.w);
+  scratchV.set(0, 1, 0).applyQuaternion(scratchQ);
+  const upx = scratchV.x;
+  const upy = scratchV.y;
+  const upz = scratchV.z;
+  // Ignore when inverted / tumbling - do not fight a tip-over.
+  if (upy < 0.45) return;
+
+  for (const coil of coilovers) {
+    if (seen.has(coil.axleId)) continue;
+    seen.add(coil.axleId);
+    const axle = axles.get(coil.axleId);
+    if (!axle) continue;
+
+    const ct = chassis.translation();
+    const cv = chassis.linvel();
+    const at = axle.body.translation();
+    const av = axle.body.linvel();
+    const hang = (ct.x - at.x) * upx + (ct.y - at.y) * upy + (ct.z - at.z) * upz;
+
+    // Past bump travel: restHang - maxTravel is still legal. Floor sits below it.
+    const travelFloor = coil.restHang - coil.maxTravel;
+    const softFloor = Math.min(0.012, Math.max(0.006, travelFloor - 0.008));
+    if (hang >= softFloor) continue;
+
+    const closing =
+      (av.x - cv.x) * upx + (av.y - cv.y) * upy + (av.z - cv.z) * upz;
+    const softErr = softFloor - hang;
+    let force = 1100 * softErr + 48 * Math.max(0, closing);
+
+    // Hard packer for zero / negative hang (chassis through axle).
+    if (hang < 0.004) {
+      const hardErr = 0.004 - hang;
+      force += 5000 * hardErr + 22000 * hardErr * hardErr + 80 * Math.max(0, closing);
+    }
+
+    const cap = Math.max(coil.bumpForceCap * 2.5, 150);
+    if (force > cap) force = cap;
+    if (force < 0) force = 0;
+
+    const impulse = force * dt;
+    chassis.applyImpulse({ x: upx * impulse, y: upy * impulse, z: upz * impulse }, true);
+    axle.body.applyImpulse({ x: -upx * impulse, y: -upy * impulse, z: -upz * impulse }, true);
   }
 }
