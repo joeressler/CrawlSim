@@ -1,0 +1,60 @@
+{
+  "parts": {
+    "chassis": "stock-box",
+    "tires": "stock-cyl",
+    "motor": "stock-crawl",
+    "battery": "unmodeled"
+  },
+  "chassis": {
+    "halfExtents": { "x": 0.38, "y": 0.1, "z": 0.34 },
+    "mass": 5
+  },
+  "spawn": { "x": 0, "y": 0.5, "z": 5 },
+  "wheels": [
+    {
+      "id": "fl",
+      "offset": { "x": -0.48, "y": -0.1, "z": -0.48 },
+      "radius": 0.24,
+      "width": 0.18,
+      "driven": true,
+      "steered": true
+    },
+    {
+      "id": "fr",
+      "offset": { "x": 0.48, "y": -0.1, "z": -0.48 },
+      "radius": 0.24,
+      "width": 0.18,
+      "driven": true,
+      "steered": true
+    },
+    {
+      "id": "rl",
+      "offset": { "x": -0.48, "y": -0.1, "z": 0.48 },
+      "radius": 0.24,
+      "width": 0.18,
+      "driven": true,
+      "steered": false
+    },
+    {
+      "id": "rr",
+      "offset": { "x": 0.48, "y": -0.1, "z": 0.48 },
+      "radius": 0.24,
+      "width": 0.18,
+      "driven": true,
+      "steered": false
+    }
+  ],
+  "suspension": {
+    "restLength": 0.42,
+    "springK": 300,
+    "damperC": 48,
+    "mu": 1.45,
+    "driveTorque": 22,
+    "maxForce": 160,
+    "steerAngle": 0.55,
+    "maxAccel": 4.5,
+    "minNormalY": 0.4
+  },
+  "maxSpeed": 2.2,
+  "cameraOffset": { "x": 0, "y": 4, "z": 8 }
+}
