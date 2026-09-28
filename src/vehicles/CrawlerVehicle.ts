@@ -97,7 +97,7 @@ export class CrawlerVehicle {
       return;
     }
     if (this.kit) {
-      // Phase 3: coilovers + hub drive. No chassis-ray spring (would double-plant).
+      // Phase 4: coilovers + hub Coulomb grip. No chassis-ray spring (would double-plant).
       applyCoilovers(this.chassisBody, this.kit.axles, this.coilovers, dt);
       const hubWheels = this.wheels.flatMap((w) => {
         if (!w.kitWheel) return [];

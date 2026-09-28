@@ -1,5 +1,5 @@
 /**
- * Phase 3 settle: idle gap, max|vy|, upright (no tip-over), no crumple, drive+steer smoke.
+ * Phase 4 settle: idle gap, max|vy|, upright (no tip-over), no crumple, drive+steer smoke.
  */
 import * as THREE from "three";
 import { loadStockRig } from "../src/data/loadRig.ts";
@@ -18,6 +18,7 @@ export type SettleMetrics = {
   relHang: number;
   driveDeltaZ: number;
   steerYaw: number;
+  reverseSteerYaw: number;
   frames: number;
   dt: number;
   seconds: number;
@@ -133,6 +134,43 @@ export async function runIdleSettle(seconds = 5, dt = 1 / 60): Promise<SettleMet
   ).y;
   const steerYaw = yawAfter - yawBefore;
 
+  // Reverse steer smoke: throttle back + steer should yaw (tail swing).
+  vehicle.reset();
+  for (let i = 0; i < 40; i += 1) {
+    vehicle.preStep(physics.world, { throttle: 0, steer: 0, reset: false }, dt);
+    physics.step(dt);
+  }
+  // Build reverse speed first.
+  for (let i = 0; i < 90; i += 1) {
+    vehicle.preStep(physics.world, { throttle: -1, steer: 0, reset: false }, dt);
+    physics.step(dt);
+    vehicle.syncMeshes();
+  }
+  const revYawBefore = new THREE.Euler().setFromQuaternion(
+    new THREE.Quaternion(
+      vehicle.chassisBody.rotation().x,
+      vehicle.chassisBody.rotation().y,
+      vehicle.chassisBody.rotation().z,
+      vehicle.chassisBody.rotation().w
+    ),
+    "YXZ"
+  ).y;
+  for (let i = 0; i < 100; i += 1) {
+    vehicle.preStep(physics.world, { throttle: -0.8, steer: 1, reset: false }, dt);
+    physics.step(dt);
+    vehicle.syncMeshes();
+  }
+  const revYawAfter = new THREE.Euler().setFromQuaternion(
+    new THREE.Quaternion(
+      vehicle.chassisBody.rotation().x,
+      vehicle.chassisBody.rotation().y,
+      vehicle.chassisBody.rotation().z,
+      vehicle.chassisBody.rotation().w
+    ),
+    "YXZ"
+  ).y;
+  const reverseSteerYaw = revYawAfter - revYawBefore;
+
   return {
     maxAbsVy,
     yawRad,
@@ -144,6 +182,7 @@ export async function runIdleSettle(seconds = 5, dt = 1 / 60): Promise<SettleMet
     relHang,
     driveDeltaZ,
     steerYaw,
+    reverseSteerYaw,
     frames,
     dt,
     seconds,
@@ -161,6 +200,7 @@ const MIN_CHASSIS_Y = 0.07;
 const MIN_UPRIGHT = 0.75;
 const MIN_REL_HANG = 0.03; // chassis above axle — no crumple
 const MIN_STEER_YAW = 0.05;
+const MIN_REVERSE_STEER_YAW = 0.04;
 
 const metrics = await runIdleSettle();
 const ok =
@@ -174,7 +214,8 @@ const ok =
   metrics.chassisY >= MIN_CHASSIS_Y &&
   metrics.upright >= MIN_UPRIGHT &&
   metrics.relHang >= MIN_REL_HANG &&
-  Math.abs(metrics.steerYaw) >= MIN_STEER_YAW;
+  Math.abs(metrics.steerYaw) >= MIN_STEER_YAW &&
+  Math.abs(metrics.reverseSteerYaw) >= MIN_REVERSE_STEER_YAW;
 
 console.log(
   JSON.stringify(
@@ -192,6 +233,7 @@ console.log(
         MIN_UPRIGHT,
         MIN_REL_HANG,
         MIN_STEER_YAW,
+        MIN_REVERSE_STEER_YAW,
       },
       metrics,
     },

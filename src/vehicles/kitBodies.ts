@@ -187,7 +187,7 @@ export function buildKitSuspension(
       RAPIER.ColliderDesc.ball(wheel.radius)
         .setTranslation(wheel.hubOffset.x, wheel.hubOffset.y, wheel.hubOffset.z)
         .setDensity(0)
-        .setFriction(0.2)
+        .setFriction(0.05)
         .setRestitution(0)
         .setCollisionGroups(HUB_GROUPS)
         .setSolverGroups(HUB_GROUPS),
