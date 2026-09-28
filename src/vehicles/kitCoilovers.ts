@@ -1,8 +1,10 @@
 ﻿/**
  * Phase 3 coilovers between chassis/axle shock mounts.
- * restLength = geometric mount distance at build + small hang bias.
+ * restLength = geometric mount distance at build (BOM-true; no rest bias fighting links).
+ * Weight preload = mg/n so hang holds at mount geometry without fake rest stretch.
  * Forces along world-up (chassis-up coupled into roll on soft sphericals).
- * L/R anti-roll bar restores roll stiffness; compress-only spring.
+ * Mild L/R anti-roll restores roll stiffness without pumping idle chatter.
+ * Compress spring + preload; extension keeps tapered preload + light damper only.
  * Hub spheres = only plant; no Rapier spring joints.
  */
 import type RAPIER from "@dimforge/rapier3d-compat";
@@ -17,6 +19,8 @@ export type CoiloverRuntime = {
   springK: number;
   damperC: number;
   forceCap: number;
+  /** Static support share at mount rest (N). Keeps hang without rest-length bias. */
+  preload: number;
   chassisMount: Vec3;
   axleId: string;
   axleMount: Vec3;
@@ -53,6 +57,9 @@ export function buildCoilovers(
 ): CoiloverRuntime[] {
   const out: CoiloverRuntime[] = [];
   const chassisMass = chassis.mass();
+  const n = Math.max(1, kit.shocks.length);
+  // Full weight share at mount rest — hang without stretching restLength past BOM.
+  const preload = (chassisMass * 9.81) / n;
   for (const shock of kit.shocks) {
     if (shock.from.part !== "chassis") {
       throw new Error(`coilover ${shock.id}: from must be chassis`);
@@ -64,15 +71,14 @@ export function buildCoilovers(
     const axleMount = mountOn(kit, shock.to.part, shock.to.mount);
     const a = worldPoint(chassis, chassisMount);
     const b = worldPoint(axle.body, axleMount);
-    // Small rest bias: world-up plant sits lower; keep chassis hanging above axles.
-    const restBias = axleId === "front" ? 0.024 : 0.008;
-    const restLength = Math.max(0.04, Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) + restBias);
+    // Hard gate: rest length equals mounts (no F/R hang bias fighting 4-link + panhard).
+    const restLength = Math.max(0.04, Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z));
     const springK = shock.springK;
-    const mEff = Math.max(0.5, chassisMass / Math.max(1, kit.shocks.length));
+    const mEff = Math.max(0.5, chassisMass / n);
     const critical = 2 * Math.sqrt(springK * mEff);
     const damperC = Math.max(shock.damperC, critical * 2.4);
     const maxTravel = Math.min(shock.maxTravel, restLength * 0.4);
-    const forceCap = (2.8 * chassisMass * 9.81) / Math.max(1, kit.shocks.length);
+    const forceCap = (2.8 * chassisMass * 9.81) / n;
     out.push({
       def: shock,
       restLength,
@@ -80,6 +86,7 @@ export function buildCoilovers(
       springK,
       damperC,
       forceCap,
+      preload,
       chassisMount,
       axleId,
       axleMount,
@@ -97,7 +104,7 @@ export function applyCoilovers(
   if (dt <= 0 || coilovers.length === 0) return;
 
   // World-up: chassis-up couples into roll when soft sphericals let rails twist
-  // on planted hubs. ARB restores roll stiffness without chassis torque.
+  // on planted hubs. Mild ARB restores roll stiffness without idle chatter.
   const ux = 0;
   const uy = 1;
   const uz = 0;
@@ -127,14 +134,15 @@ export function applyCoilovers(
 
     let force = 0;
     if (compression > 0) {
-      force = c.springK * compression + c.damperC * closingSpeed;
+      force = c.springK * compression + c.preload + c.damperC * closingSpeed;
       const bumpDepth = compression - c.maxTravel;
       if (bumpDepth > 0) {
         force += c.springK * 8 * bumpDepth + c.damperC * 2 * Math.max(0, closingSpeed);
       }
     } else {
-      // Extension: damper only — no spring pull fighting links / panhard.
-      force = c.damperC * 0.35 * closingSpeed;
+      // Extension: taper preload so gravity can settle; no spring pull fighting links.
+      const taper = Math.max(0, 1 + compression / Math.max(1e-3, c.restLength * 0.25));
+      force = c.preload * taper + c.damperC * 0.35 * closingSpeed;
     }
     if (force > c.forceCap) force = c.forceCap;
     if (force < -c.forceCap * 0.35) force = -c.forceCap * 0.35;
@@ -147,8 +155,9 @@ export function applyCoilovers(
     list.push(s);
     byAxle.set(s.coil.axleId, list);
   }
-  const ARB_K = 55;
-  const ARB_C = 40;
+  // Softened vs prior 55/40: strong ARB + preload locked a pitched idle and pumped Vy.
+  const ARB_K = 28;
+  const ARB_C = 12;
   for (const pair of byAxle.values()) {
     if (pair.length !== 2) continue;
     const left = pair.find((s) => s.coil.chassisMount.x < 0);
@@ -171,4 +180,3 @@ export function applyCoilovers(
     s.axle.body.applyImpulseAtPoint({ x: -ux * impulse, y: -uy * impulse, z: -uz * impulse }, s.p1, true);
   }
 }
-
