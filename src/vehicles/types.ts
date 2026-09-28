@@ -88,11 +88,13 @@ export type AxleDef = {
   mounts: MountDef[];
 };
 
-/** Control-arm / link between two mounts. Phase 1: BOM + validation only. */
+/** Control-arm / link / panhard between two mounts. */
 export type LinkDef = {
   id: string;
   from: MountRef;
   to: MountRef;
+  /** Defaults to arm. Panhard is a lateral locator (still two sphericals — Strategy B). */
+  kind?: "arm" | "panhard";
 };
 
 /** Coilover between two mounts. Phase 1: rates feed legacy `suspension`; no force solver yet. */

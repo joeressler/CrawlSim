@@ -1,8 +1,13 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
+import { WORLD_GROUPS } from "../physics/collisionGroups.ts";
 import { addTrailLights } from "../render/lights.ts";
 import type { PhysicsWorld } from "../physics/PhysicsWorld.ts";
 import type { Vec3 } from "../vehicles/types.ts";
+
+function worldCollider(desc: RAPIER.ColliderDesc): RAPIER.ColliderDesc {
+  return desc.setCollisionGroups(WORLD_GROUPS).setSolverGroups(WORLD_GROUPS);
+}
 
 export class TrailScene {
   readonly scene: THREE.Scene;
@@ -22,10 +27,12 @@ export class TrailScene {
   private createGround(physics: PhysicsWorld): void {
     const groundBody = physics.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
     physics.world.createCollider(
-      RAPIER.ColliderDesc.cuboid(20, 0.25, 20)
-        .setTranslation(0, -0.25, 0)
-        .setFriction(0.55)
-        .setRestitution(0),
+      worldCollider(
+        RAPIER.ColliderDesc.cuboid(20, 0.25, 20)
+          .setTranslation(0, -0.25, 0)
+          .setFriction(0.55)
+          .setRestitution(0)
+      ),
       groundBody
     );
     const groundMesh = new THREE.Mesh(
@@ -47,7 +54,7 @@ export class TrailScene {
       RAPIER.RigidBodyDesc.fixed().setTranslation(0, rampY, rampZ).setRotation(rotation)
     );
     physics.world.createCollider(
-      RAPIER.ColliderDesc.cuboid(half.x, half.y, half.z).setFriction(0.7).setRestitution(0),
+      worldCollider(RAPIER.ColliderDesc.cuboid(half.x, half.y, half.z).setFriction(0.7).setRestitution(0)),
       ramp
     );
     const rampMesh = new THREE.Mesh(
@@ -68,7 +75,7 @@ export class TrailScene {
       RAPIER.RigidBodyDesc.fixed().setTranslation(position.x, position.y, position.z)
     );
     physics.world.createCollider(
-      RAPIER.ColliderDesc.cuboid(half.x, half.y, half.z).setFriction(0.9).setRestitution(0),
+      worldCollider(RAPIER.ColliderDesc.cuboid(half.x, half.y, half.z).setFriction(0.9).setRestitution(0)),
       body
     );
     const mesh = new THREE.Mesh(
@@ -78,41 +85,36 @@ export class TrailScene {
     mesh.position.set(position.x, position.y, position.z);
     this.scene.add(mesh);
   }
+
   /** Three-tier stairs up, then down, on −X. */
   private createObstacleCourse(physics: PhysicsWorld): void {
     const mat = new THREE.MeshStandardMaterial({ color: 0x7a5a3a });
     const halfX = 1.2;
     const halfZ = 0.65;
-    const heights = [0.18, 0.3, 0.42]; // three tiers
+    const heights = [0.18, 0.3, 0.42];
     const laneX = -6.5;
     const startZ = 1.4;
-    const stepPitch = 1.4; // center-to-center along Z
+    const stepPitch = 1.4;
     const addStep = (h: number, z: number): void => {
       const halfY = h / 2;
       const body = physics.world.createRigidBody(
         RAPIER.RigidBodyDesc.fixed().setTranslation(laneX, halfY, z)
       );
       physics.world.createCollider(
-        RAPIER.ColliderDesc.cuboid(halfX, halfY, halfZ)
-          .setFriction(0.9)
-          .setRestitution(0),
+        worldCollider(
+          RAPIER.ColliderDesc.cuboid(halfX, halfY, halfZ)
+            .setFriction(0.9)
+            .setRestitution(0)
+        ),
         body
       );
-      const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(halfX * 2, h, halfZ * 2),
-        mat
-      );
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(halfX * 2, h, halfZ * 2), mat);
       mesh.position.set(laneX, halfY, z);
       this.scene.add(mesh);
     };
-    // Up: low → mid → high (toward −Z)
     heights.forEach((h, i) => addStep(h, startZ - i * stepPitch));
-    // Flat top (same height as third tier)
     const topZ = startZ - heights.length * stepPitch;
-    addStep(heights[2], topZ);
-    // Down: high → mid → low
-    [...heights].reverse().forEach((h, i) =>
-      addStep(h, topZ - (i + 1) * stepPitch)
-    );
+    addStep(heights[2]!, topZ);
+    [...heights].reverse().forEach((h, i) => addStep(h, topZ - (i + 1) * stepPitch));
   }
 }
