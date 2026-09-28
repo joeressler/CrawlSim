@@ -1,12 +1,13 @@
-/**
- * Phase 4 settle: idle gap, max|vy|, upright (no tip-over), no crumple, drive+steer smoke.
- */
+﻿import { fileURLToPath } from "node:url";
 import * as THREE from "three";
 import { loadStockRig } from "../src/data/loadRig.ts";
 import { PhysicsWorld } from "../src/physics/PhysicsWorld.ts";
 import { CrawlerVehicle } from "../src/vehicles/CrawlerVehicle.ts";
 import { TrailScene } from "../src/world/TrailScene.ts";
 
+/**
+ * Idle settle metrics (importable). CLI runs only when this file is the entrypoint.
+ */
 export type SettleMetrics = {
   maxAbsVy: number;
   yawRad: number;
@@ -189,60 +190,67 @@ export async function runIdleSettle(seconds = 5, dt = 1 / 60): Promise<SettleMet
   };
 }
 
-const MAX_ABS_VY = 0.35;
-const MAX_AXLE_ABS_VY = 0.5;
-const MAX_YAW = 0.25;
-const MAX_PLANAR = 0.2;
-const MIN_IDLE_GAP = -0.02;
-const MAX_IDLE_GAP = 0.04;
-const MIN_DRIVE_DZ = 0.08;
-const MIN_CHASSIS_Y = 0.07;
-const MIN_UPRIGHT = 0.75;
-const MIN_REL_HANG = 0.03; // chassis above axle — no crumple
-const MIN_STEER_YAW = 0.05;
-const MIN_REVERSE_STEER_YAW = 0.04;
 
-const metrics = await runIdleSettle();
-const ok =
-  metrics.maxAbsVy <= MAX_ABS_VY &&
-  metrics.axleMaxAbsVy <= MAX_AXLE_ABS_VY &&
-  Math.abs(metrics.yawRad) <= MAX_YAW &&
-  metrics.planarDrift <= MAX_PLANAR &&
-  metrics.idleGap >= MIN_IDLE_GAP &&
-  metrics.idleGap <= MAX_IDLE_GAP &&
-  metrics.driveDeltaZ >= MIN_DRIVE_DZ &&
-  metrics.chassisY >= MIN_CHASSIS_Y &&
-  metrics.upright >= MIN_UPRIGHT &&
-  metrics.relHang >= MIN_REL_HANG &&
-  Math.abs(metrics.steerYaw) >= MIN_STEER_YAW &&
-  Math.abs(metrics.reverseSteerYaw) >= MIN_REVERSE_STEER_YAW;
 
-console.log(
-  JSON.stringify(
-    {
-      ok,
-      thresholds: {
-        MAX_ABS_VY,
-        MAX_AXLE_ABS_VY,
-        MAX_YAW,
-        MAX_PLANAR,
-        MIN_IDLE_GAP,
-        MAX_IDLE_GAP,
-        MIN_DRIVE_DZ,
-        MIN_CHASSIS_Y,
-        MIN_UPRIGHT,
-        MIN_REL_HANG,
-        MIN_STEER_YAW,
-        MIN_REVERSE_STEER_YAW,
+const isSettleCli = process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1];
+
+if (isSettleCli) {
+  const MAX_ABS_VY = 0.35;
+  const MAX_AXLE_ABS_VY = 0.5;
+  const MAX_YAW = 0.25;
+  const MAX_PLANAR = 0.2;
+  const MIN_IDLE_GAP = -0.02;
+  const MAX_IDLE_GAP = 0.04;
+  const MIN_DRIVE_DZ = 0.08;
+  const MIN_CHASSIS_Y = 0.07;
+  const MIN_UPRIGHT = 0.75;
+  const MIN_REL_HANG = 0.03; // chassis above axle â€” no crumple
+  const MIN_STEER_YAW = 0.05;
+  const MIN_REVERSE_STEER_YAW = 0.04;
+
+  const metrics = await runIdleSettle();
+  const ok =
+    metrics.maxAbsVy <= MAX_ABS_VY &&
+    metrics.axleMaxAbsVy <= MAX_AXLE_ABS_VY &&
+    Math.abs(metrics.yawRad) <= MAX_YAW &&
+    metrics.planarDrift <= MAX_PLANAR &&
+    metrics.idleGap >= MIN_IDLE_GAP &&
+    metrics.idleGap <= MAX_IDLE_GAP &&
+    metrics.driveDeltaZ >= MIN_DRIVE_DZ &&
+    metrics.chassisY >= MIN_CHASSIS_Y &&
+    metrics.upright >= MIN_UPRIGHT &&
+    metrics.relHang >= MIN_REL_HANG &&
+    Math.abs(metrics.steerYaw) >= MIN_STEER_YAW &&
+    Math.abs(metrics.reverseSteerYaw) >= MIN_REVERSE_STEER_YAW;
+
+  console.log(
+    JSON.stringify(
+      {
+        ok,
+        thresholds: {
+          MAX_ABS_VY,
+          MAX_AXLE_ABS_VY,
+          MAX_YAW,
+          MAX_PLANAR,
+          MIN_IDLE_GAP,
+          MAX_IDLE_GAP,
+          MIN_DRIVE_DZ,
+          MIN_CHASSIS_Y,
+          MIN_UPRIGHT,
+          MIN_REL_HANG,
+          MIN_STEER_YAW,
+          MIN_REVERSE_STEER_YAW,
+        },
+        metrics,
       },
-      metrics,
-    },
-    null,
-    2
-  )
-);
-if (!ok) {
-  console.error("idle settle gate FAILED");
-  process.exit(1);
+      null,
+      2
+    )
+  );
+  if (!ok) {
+    console.error("idle settle gate FAILED");
+    process.exit(1);
+  }
+  console.log("idle settle gate OK");
 }
-console.log("idle settle gate OK");
+

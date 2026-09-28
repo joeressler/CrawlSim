@@ -1,19 +1,19 @@
-# CrawlSim
+﻿# CrawlSim
 
 RC rock-crawler vertical slice: box chassis, four wheels, ground + ramp, WASD drive, R reset.
 
 ## Scripts
 
-- `npm run dev` — Vite dev server
-- `npm run build` — typecheck and production bundle
-- `npm run check` — `tsc --noEmit`
-- `npm run preview` — serve the production build
+- `npm run dev` â€” Vite dev server
+- `npm run build` â€” typecheck and production bundle
+- `npm run check` â€” `tsc --noEmit`
+- `npm run preview` â€” serve the production build
 
 ## Controls
 
-- **W / S** or arrows — throttle
-- **A / D** or arrows — steer the front tires
-- **R** — reset pose and velocities from the rig spawn
+- **W / S** or arrows â€” throttle
+- **A / D** or arrows â€” steer the front tires
+- **R** â€” reset pose and velocities from the rig spawn
 
 The ramp is straight ahead of spawn. A box ledge about one tire radius tall sits off to the right.
 
@@ -53,20 +53,43 @@ Filled automatically from the kit (or authored directly in legacy JSON). Shared 
 | --- | --- |
 | `restLength` | Unloaded ray length from the hardpoint down to the contact (m) |
 | `springK` | Spring rate along the contact normal, `F = k * (restLength - dist)` (N/m) |
-| `damperC` | Damper, `F = -c * closingSpeed` (N·s/m). No force when the tire is unloaded |
-| `mu` | Coulomb friction coefficient. `F_max = μ * max(F_n, 0)` |
-| `driveTorque` | Motor torque stub (N·m). Caps longitudinal force at `driveTorque / wheel.radius` |
+| `damperC` | Damper, `F = -c * closingSpeed` (NÂ·s/m). No force when the tire is unloaded |
+| `mu` | Coulomb friction coefficient. `F_max = Î¼ * max(F_n, 0)` |
+| `driveTorque` | Motor torque stub (NÂ·m). Caps longitudinal force at `driveTorque / wheel.radius` |
 | `maxForce` | Extra cap on the friction vector (N) |
 | `steerAngle` | Front steer limit (radians) |
-| `maxAccel` | How fast throttle can change speed (m/s²). Stops launch wheelies and reverse flips |
+| `maxAccel` | How fast throttle can change speed (m/sÂ²). Stops launch wheelies and reverse flips |
 | `minNormalY` | Lowest world-up component of a contact normal that still supports the tire. Steeper faces are ignored so a ledge lip does not catch |
-| `maxTravel` | Max strut compression from `restLength` (m). Tire cannot extend past restLength or compress past restLength − maxTravel |
-| `minUpright` | Chassis-up · world-up below this turns off tire support and drive so the rig cannot crawl upside down |
+| `maxTravel` | Max strut compression from `restLength` (m). Tire cannot extend past restLength or compress past restLength âˆ’ maxTravel |
+| `minUpright` | Chassis-up Â· world-up below this turns off tire support and drive so the rig cannot crawl upside down |
 
-Per wheel (legacy): `offset` (hardpoint on the chassis), `radius`, `width`, `driven`, `steered`. `maxSpeed` clamps planar speed. Chassis `halfExtents.y` and hardpoint height set belly clearance so the cuboid does not catch a ledge before the tires crest it. Tire meshes are visual only — they have no colliders.
+Per wheel (legacy): `offset` (hardpoint on the chassis), `radius`, `width`, `driven`, `steered`. `maxSpeed` clamps planar speed. Chassis `halfExtents.y` and hardpoint height set belly clearance so the cuboid does not catch a ledge before the tires crest it. Tire meshes are visual only â€” they have no colliders.
 
 ## Adding a part later
 
 `PartIds` on `RigDef` (`chassis`, `tires`, `motor`, `battery`, optional `axles` / `links` / `shocks`) are string ids only in this slice. A garage can swap those ids and rebuild `CrawlerVehicle` from a new `RigDef` without rewriting `Game`.
 
 Crawl forces live in [`src/vehicles/drive.ts`](src/vehicles/drive.ts): one suspension ray and a friction clamp per tire. Kit mounts/links/shocks are the BOM for later axle bodies and joints; the chassis-ray path is still what drives today.
+## Headless tests (no browser)
+
+Autonomous crawler gates for CI / unattended runs. Fixed dt = 1/60, scripted WASD-equivalent input.
+
+| Command | What it asserts |
+| --- | --- |
+| `npm run settle` | Idle upright/hang/plant, forward smoke, steer + reverse-steer yaw |
+| `npm run crawl-test` | Idle (via settle), flat forward displacement, ramp climb progress, ledge crest *attempt*, speed explode cap, upright tip floors |
+| `npm run test` | `settle` then `crawl-test` (nonzero exit on any failure) |
+
+`crawl-test` thresholds (see `scripts/crawlTest.ts`):
+
+| Gate | Threshold |
+| --- | --- |
+| MAX_SPEED (no explode) | 8 m/s |
+| Idle upright | >= 0.75 |
+| Crawl min upright | >= 0.28 (final >= 0.30; not inverted) |
+| Flat peak forward | >= 0.08 m |
+| Ramp peak forward (toward ramp) | >= 0.08 m |
+| Ledge peak +X or maxY | >= 0.25 m or >= 0.12 m (crest attempt) |
+
+Shared harness: `scripts/crawlHarness.ts`.
+
