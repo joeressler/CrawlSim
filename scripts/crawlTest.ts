@@ -13,8 +13,10 @@ import * as THREE from "three";
 import {
   check,
   createHarness,
+  DT,
   idle,
   place,
+  planarSpeed,
   speed,
   step,
   uprightY,
@@ -125,6 +127,13 @@ async function scenarioIdleUpright(): Promise<ScenarioReport> {
   check(failures, "idle_chassis_y", m.chassisY >= 0.07, `chassisY=${m.chassisY.toFixed(3)}`);
   check(failures, "idle_rel_hang", m.relHang >= 0.03, `relHang=${m.relHang.toFixed(3)}`);
   check(failures, "idle_drive", m.driveDeltaZ >= 0.08, `driveDeltaZ=${m.driveDeltaZ.toFixed(3)}`);
+  check(failures, "idle_vy", m.maxAbsVy <= 0.35, `maxAbsVy=${m.maxAbsVy.toFixed(3)}`);
+  check(
+    failures,
+    "idle_jitter",
+    m.maxStepDeltaVy <= 0.25,
+    `maxStepDeltaVy=${m.maxStepDeltaVy.toFixed(3)}`
+  );
   return {
     name: "idle_upright",
     ok: failures.length === 0,
@@ -742,6 +751,72 @@ async function scenarioReverseFold(): Promise<ScenarioReport> {
   };
 }
 
+/** Flat creep away from the ramp: planted tires stay at rolling slip. */
+async function scenarioFlatSlip(): Promise<ScenarioReport> {
+  const failures: GateFailure[] = [];
+  const h = await createHarness();
+  place(h, 0, 0.22, 8, 0);
+  idle(h, 90);
+  let maxSlip = 0;
+  let samples = 0;
+  const z0 = h.vehicle.chassisBody.translation().z;
+  for (let i = 0; i < 150; i += 1) {
+    step(h, { throttle: 0.45, steer: 0, reset: false });
+    if (i < 40) continue;
+    for (const contact of h.vehicle.tireContacts()) {
+      if (contact.fn < 2) continue;
+      maxSlip = Math.max(maxSlip, Math.abs(contact.slip));
+      samples += 1;
+    }
+  }
+  const dz = z0 - h.vehicle.chassisBody.translation().z;
+  check(failures, "slip_samples", samples > 20, `samples=${samples}`);
+  check(failures, "slip_moved", dz >= 0.3, `dz=${dz.toFixed(3)}`);
+  check(failures, "slip_bound", maxSlip <= 0.15, `maxSlip=${maxSlip.toFixed(4)}`);
+  return {
+    name: "flat_slip",
+    ok: failures.length === 0,
+    metrics: { maxSlip, samples, dz },
+    failures,
+  };
+}
+
+/** Sharp lip ~0.75R at x=10. Creep over it without a hard stop or a bounce-off. */
+async function scenarioLipCreep(): Promise<ScenarioReport> {
+  const failures: GateFailure[] = [];
+  const h = await createHarness();
+  place(h, 10, 0.22, 1.6, 0);
+  idle(h, 90);
+  const y0 = h.vehicle.chassisBody.translation().y;
+  const z0 = h.vehicle.chassisBody.translation().z;
+  let maxY = y0;
+  let maxVy = 0;
+  let stuck = 0;
+  let maxStuck = 0;
+  for (let i = 0; i < 280; i += 1) {
+    step(h, { throttle: 1, steer: 0, reset: false });
+    const t = h.vehicle.chassisBody.translation();
+    maxY = Math.max(maxY, t.y);
+    maxVy = Math.max(maxVy, Math.abs(h.vehicle.chassisBody.linvel().y));
+    const nearLip = t.z < 0.55 && t.z > -0.15 && t.y < y0 + 0.02;
+    if (nearLip && planarSpeed(h.vehicle) < 0.06) stuck += DT;
+    else stuck = 0;
+    maxStuck = Math.max(maxStuck, stuck);
+  }
+  const climb = maxY - y0;
+  const dz = z0 - h.vehicle.chassisBody.translation().z;
+  check(failures, "lip_climb", climb >= 0.025, `climb=${climb.toFixed(3)}`);
+  check(failures, "lip_vy", maxVy <= 0.9, `maxVy=${maxVy.toFixed(3)}`);
+  check(failures, "lip_stuck", maxStuck <= 0.35, `maxStuck=${maxStuck.toFixed(3)}`);
+  check(failures, "lip_progress", dz >= 0.5, `dz=${dz.toFixed(3)}`);
+  return {
+    name: "lip_creep",
+    ok: failures.length === 0,
+    metrics: { climb, maxVy, maxStuck, dz },
+    failures,
+  };
+}
+
 async function scenarioLinkIntegrity(): Promise<ScenarioReport> {
   const failures: GateFailure[] = [];
   const h = await createHarness();
@@ -833,6 +908,8 @@ reports.push(await scenarioThrottleFold());
 reports.push(await scenarioReverseFold());
 reports.push(await scenarioAxleRam());
 reports.push(await scenarioLinkIntegrity());
+reports.push(await scenarioFlatSlip());
+reports.push(await scenarioLipCreep());
 
 const ok = reports.every((r) => r.ok);
 console.log(JSON.stringify({ ok, thresholds, scenarios: reports }, null, 2));

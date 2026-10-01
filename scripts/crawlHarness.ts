@@ -9,7 +9,9 @@ import { CrawlerVehicle } from "../src/vehicles/CrawlerVehicle.ts";
 import { TrailScene } from "../src/world/TrailScene.ts";
 import type { DriveInput } from "../src/input/Input.ts";
 import type { RigDef } from "../src/vehicles/types.ts";
+import { forEachSubstep } from "../src/game/Time.ts";
 
+/** Outer harness frame. Each call subdivides to the 1/120 s physics step. */
 export const DT = 1 / 60;
 
 export type Harness = {
@@ -64,8 +66,10 @@ export function forwardXZ(vehicle: CrawlerVehicle): { x: number; z: number } {
 }
 
 export function step(h: Harness, input: DriveInput, dt = DT): void {
-  h.vehicle.preStep(h.physics.world, input, dt);
-  h.physics.step(dt);
+  forEachSubstep(dt, (stepDt) => {
+    h.vehicle.preStep(h.physics.world, input, stepDt);
+    h.physics.step(stepDt);
+  });
   h.vehicle.syncMeshes();
 }
 

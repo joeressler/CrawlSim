@@ -13,7 +13,9 @@
  * unloads or fewer than three tires are down.
  * Extension is clamped to restLength and compression to restLength − maxTravel along
  * the chassis-down strut. If the chassis is upside-down past minUpright, tires unload.
- * Next upgrade: real wheel joints / limited-travel struts (replacing these rays), then lockers.
+ * Kit rigs do not use this path. Locked-axle crawl lives in kitHubDrive.ts /
+ * tirePatch.ts. Next upgrades there: node-ring carcass, open diff, portal gears.
+ * Legacy next step if this path returns: wheel joints, then lockers.
  */
 import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";

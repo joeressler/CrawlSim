@@ -129,3 +129,91 @@ export function applyHardFoldStop(
     }
   }
 }
+
+/**
+ * Pose projection after the physics step.
+ * A rounded ramp nose still lets the housing walk a centimetre, and that is
+ * enough to shorten or lengthen the short upper arms past the fold gate.
+ * Straight driving only — steering needs the axle free to swing.
+ */
+const STATION_HALF = 0.002;
+const PITCH_PROJECT = 0.05;
+const DROOP_PROJECT = 0.008;
+
+export function projectAxleStation(
+  chassis: RAPIER.RigidBody,
+  axles: Map<string, KitAxleRuntime>
+): void {
+  const cr = chassis.rotation();
+  scratchQ.set(cr.x, cr.y, cr.z, cr.w);
+  scratchInv.copy(scratchQ).invert();
+  const ct = chassis.translation();
+  for (const axle of axles.values()) {
+    const at = axle.body.translation();
+    scratchLocal.set(at.x - ct.x, at.y - ct.y, at.z - ct.z).applyQuaternion(scratchInv);
+    const ar = axle.body.rotation();
+    const aq = new THREE.Quaternion(ar.x, ar.y, ar.z, ar.w);
+    const rel = scratchQ.clone().invert().multiply(aq);
+    const euler = new THREE.Euler(0, 0, 0, "YXZ").setFromQuaternion(rel);
+    let moved = false;
+    if (scratchLocal.y < axle.restLocal.y - DROOP_PROJECT) {
+      scratchLocal.y = axle.restLocal.y - DROOP_PROJECT;
+      moved = true;
+    }
+    if (Math.abs(euler.x) > PITCH_PROJECT) {
+      euler.x = Math.sign(euler.x) * PITCH_PROJECT;
+      rel.setFromEuler(euler);
+      const world = scratchQ.clone().multiply(rel);
+      axle.body.setRotation({ x: world.x, y: world.y, z: world.z, w: world.w }, true);
+      moved = true;
+    }
+    const zLo = axle.restLocal.z - STATION_HALF;
+    const zHi = axle.restLocal.z + STATION_HALF;
+    if (scratchLocal.z < zLo) {
+      scratchLocal.z = zLo;
+      moved = true;
+    } else if (scratchLocal.z > zHi) {
+      scratchLocal.z = zHi;
+      moved = true;
+    }
+    if (!moved) continue;
+    scratchFwd.copy(scratchLocal).applyQuaternion(scratchQ);
+    axle.body.setTranslation(
+      { x: ct.x + scratchFwd.x, y: ct.y + scratchFwd.y, z: ct.z + scratchFwd.z },
+      true
+    );
+  }
+}
+
+/**
+ * Soft fore-aft station spring. Distance rods allow the housing to walk rearward
+ * under throttle; this holds chassis-local Z near the rest pose.
+ */
+export function holdAxleStation(
+  chassis: RAPIER.RigidBody,
+  axles: Map<string, KitAxleRuntime>,
+  dt: number
+): void {
+  if (!(dt > 0)) return;
+  const cr = chassis.rotation();
+  scratchQ.set(cr.x, cr.y, cr.z, cr.w);
+  scratchInv.copy(scratchQ).invert();
+  scratchFwd.set(0, 0, 1).applyQuaternion(scratchQ);
+  const ct = chassis.translation();
+  for (const axle of axles.values()) {
+    const at = axle.body.translation();
+    scratchLocal.set(at.x - ct.x, at.y - ct.y, at.z - ct.z).applyQuaternion(scratchInv);
+    const err = scratchLocal.z - axle.restLocal.z;
+    if (Math.abs(err) < 0.018) continue;
+    const force = clamp(-err * 1600, -180, 180);
+    const j = force * dt;
+    axle.body.applyImpulse(
+      { x: scratchFwd.x * j, y: scratchFwd.y * j, z: scratchFwd.z * j },
+      true
+    );
+    chassis.applyImpulse(
+      { x: -scratchFwd.x * j * 0.4, y: -scratchFwd.y * j * 0.4, z: -scratchFwd.z * j * 0.4 },
+      true
+    );
+  }
+}

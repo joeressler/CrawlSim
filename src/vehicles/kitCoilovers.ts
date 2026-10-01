@@ -226,3 +226,33 @@ export function applyCoilovers(
     s.axle.body.applyImpulseAtPoint({ x: -ux * impulse, y: -uy * impulse, z: -uz * impulse }, s.p1, true);
   }
 }
+
+/** Bleed axle heave vs chassis after the link solve so carcass pogo dies without a pitch arm. */
+export function dampAxleHeave(
+  chassis: RAPIER.RigidBody,
+  axles: Map<string, KitAxleRuntime>,
+  dt: number
+): void {
+  if (!(dt > 0)) return;
+  const cr = chassis.rotation();
+  scratchQ.set(cr.x, cr.y, cr.z, cr.w);
+  scratchV.set(0, 1, 0).applyQuaternion(scratchQ);
+  const upLen = scratchV.length() || 1;
+  const upx = scratchV.x / upLen;
+  const upy = scratchV.y / upLen;
+  const upz = scratchV.z / upLen;
+  const cv = chassis.linvel();
+  const HEAVE_C = 36;
+  const HEAVE_CAP = 22;
+  for (const axle of axles.values()) {
+    const av = axle.body.linvel();
+    const rel = (av.x - cv.x) * upx + (av.y - cv.y) * upy + (av.z - cv.z) * upz;
+    let force = -HEAVE_C * rel;
+    if (force > HEAVE_CAP) force = HEAVE_CAP;
+    if (force < -HEAVE_CAP) force = -HEAVE_CAP;
+    const j = force * dt;
+    if (j === 0) continue;
+    axle.body.applyImpulse({ x: upx * j, y: upy * j, z: upz * j }, true);
+    chassis.applyImpulse({ x: -upx * j, y: -upy * j, z: -upz * j }, true);
+  }
+}

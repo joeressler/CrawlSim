@@ -514,6 +514,13 @@
       "maxAccel": 13,
       "minNormalY": 0.14,
       "minUpright": 0.28
+    },
+    "tire": {
+      "radialK": 1600,
+      "radialC": 80,
+      "reboundC": 28,
+      "maxDeflection": 0.3,
+      "deflectionFilter": 0.012
     }
   }
 }
