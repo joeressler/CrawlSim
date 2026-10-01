@@ -49,7 +49,7 @@
           "offset": {
             "x": -0.0375,
             "y": 0.04,
-            "z": -0.0865
+            "z": -0.062
           }
         },
         {
@@ -57,7 +57,7 @@
           "offset": {
             "x": 0.0375,
             "y": 0.04,
-            "z": -0.0865
+            "z": -0.062
           }
         },
         {
@@ -81,7 +81,7 @@
           "offset": {
             "x": -0.0375,
             "y": 0.04,
-            "z": 0.0865
+            "z": 0.062
           }
         },
         {
@@ -89,7 +89,7 @@
           "offset": {
             "x": 0.0375,
             "y": 0.04,
-            "z": 0.0865
+            "z": 0.062
           }
         },
         {
@@ -172,7 +172,7 @@
             "offset": {
               "x": -0.0375,
               "y": 0.065,
-              "z": 0
+              "z": 0.012
             }
           },
           {
@@ -180,7 +180,7 @@
             "offset": {
               "x": 0.0375,
               "y": 0.065,
-              "z": 0
+              "z": 0.012
             }
           },
           {
@@ -238,7 +238,7 @@
             "offset": {
               "x": -0.0375,
               "y": 0.065,
-              "z": 0
+              "z": 0.012
             }
           },
           {
@@ -246,7 +246,7 @@
             "offset": {
               "x": 0.0375,
               "y": 0.065,
-              "z": 0
+              "z": 0.012
             }
           },
           {
@@ -402,8 +402,8 @@
           "mount": "left_shock"
         },
         "restLength": 0.1,
-        "springK": 220,
-        "damperC": 90,
+        "springK": 260,
+        "damperC": 110,
         "maxTravel": 0.035
       },
       {
@@ -417,8 +417,8 @@
           "mount": "right_shock"
         },
         "restLength": 0.1,
-        "springK": 220,
-        "damperC": 90,
+        "springK": 260,
+        "damperC": 110,
         "maxTravel": 0.035
       },
       {
@@ -432,8 +432,8 @@
           "mount": "left_shock"
         },
         "restLength": 0.1,
-        "springK": 220,
-        "damperC": 90,
+        "springK": 260,
+        "damperC": 110,
         "maxTravel": 0.035
       },
       {
@@ -447,8 +447,8 @@
           "mount": "right_shock"
         },
         "restLength": 0.1,
-        "springK": 220,
-        "damperC": 90,
+        "springK": 260,
+        "damperC": 110,
         "maxTravel": 0.035
       }
     ],
@@ -507,13 +507,13 @@
       }
     ],
     "drive": {
-      "mu": 1.6,
-      "driveTorque": 28,
-      "maxForce": 280,
+      "mu": 1.95,
+      "driveTorque": 40,
+      "maxForce": 400,
       "steerAngle": 0.48,
-      "maxAccel": 10,
-      "minNormalY": 0.18,
-      "minUpright": 0.3
+      "maxAccel": 13,
+      "minNormalY": 0.14,
+      "minUpright": 0.28
     }
   }
 }

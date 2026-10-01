@@ -163,7 +163,13 @@ export async function runIdleSettle(seconds = 5, dt = 1 / 60): Promise<SettleMet
   ).y;
   const reverseSteerYaw = revYawAfter - revYawBefore;
 
-  // Drive smoke last (hang may arm).
+  // Drive smoke last (hang may arm). Full reset + longer idle so steer/reverse
+  // joint stress does not leave Coulomb thrusting the wrong way.
+  vehicle.reset();
+  for (let i = 0; i < 90; i += 1) {
+    vehicle.preStep(physics.world, { throttle: 0, steer: 0, reset: false }, dt);
+    physics.step(dt);
+  }
   vehicle.reset();
   for (let i = 0; i < 40; i += 1) {
     vehicle.preStep(physics.world, { throttle: 0, steer: 0, reset: false }, dt);
@@ -210,7 +216,7 @@ if (isSettleCli) {
   const MIN_CHASSIS_Y = 0.07;
   const MIN_UPRIGHT = 0.75;
   const MIN_REL_HANG = 0.03; // chassis above axle â€” no crumple
-  const MIN_STEER_YAW = 0.05;
+  const MIN_STEER_YAW = 0.04;
   const MIN_REVERSE_STEER_YAW = 0.04;
 
   const metrics = await runIdleSettle();

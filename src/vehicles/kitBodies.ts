@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Strategy B Phase 3: dynamic axle bodies + spherical link kit + soft hub plant spheres.
  * Gravity restored on kit parts. Vertical plant = hub spheres only (no chassis-ray spring).
  * Coilovers / hub drive live in kitCoilovers.ts + kitHubDrive.ts.
@@ -30,9 +30,14 @@ export type KitLinkRuntime = {
   mesh: THREE.Object3D;
   def: LinkDef;
   length: number;
+  from: { bodyKey: string; local: Vec3 };
+  to: { bodyKey: string; local: Vec3 };
+  jointFrom?: RAPIER.ImpulseJoint;
+  jointTo?: RAPIER.ImpulseJoint;
 };
 
 export type KitSuspensionRuntime = {
+  chassis: RAPIER.RigidBody;
   axles: Map<string, KitAxleRuntime>;
   links: KitLinkRuntime[];
   wheels: KitWheelDef[];
@@ -161,7 +166,7 @@ export function buildKitSuspension(
 
   world.integrationParameters.numSolverIterations = Math.max(
     world.integrationParameters.numSolverIterations,
-    28
+    56
   );
   world.integrationParameters.normalizedAllowedLinearError = Math.min(
     world.integrationParameters.normalizedAllowedLinearError,
@@ -202,19 +207,33 @@ export function buildKitSuspension(
     bodyByKey.set(def.id, body);
   }
 
-  // Soft hub plant spheres (ONE vertical plant â€” not stacked with chassis-ray spring).
+  // Soft hub plant spheres (ONE vertical plant � not stacked with chassis-ray spring).
   for (const wheel of kit.wheels) {
     const axle = axles.get(wheel.axle);
     if (!axle) throw new Error(`hub sphere: unknown axle ${wheel.axle}`);
+    // Friction 0: Rapier contact is normal-only; Coulomb in kitHubDrive owns grip.
     world.createCollider(
       RAPIER.ColliderDesc.ball(wheel.radius)
         .setTranslation(wheel.hubOffset.x, wheel.hubOffset.y, wheel.hubOffset.z)
         .setDensity(0)
-        .setFriction(0.85)
+        .setFriction(0)
         .setRestitution(0)
         .setCollisionGroups(HUB_GROUPS)
         .setSolverGroups(HUB_GROUPS),
       axle.body
+    );
+  }
+
+  // Extra I about tube/lateral after hub colliders so it survives mass recompute.
+  // Stock I_xx ~2e-5 lets coils+drive tumble the axle (foldDiag A ~step 15).
+  for (const axle of axles.values()) {
+    axle.body.recomputeMassPropertiesFromColliders();
+    axle.body.setAdditionalMassProperties(
+      0,
+      { x: 0, y: 0, z: 0 },
+      { x: 0.025, y: 0, z: 0 },
+      identityQuat(),
+      true
     );
   }
 
@@ -242,18 +261,38 @@ export function buildKitSuspension(
 
     const anchorLinkFrom = sub(fromWorld, center);
     const anchorLinkTo = sub(toWorld, center);
-    world.createImpulseJoint(RAPIER.JointData.spherical(from.local, anchorLinkFrom), fromBody, body, true);
-    world.createImpulseJoint(RAPIER.JointData.spherical(anchorLinkTo, to.local), body, toBody, true);
+    const jointFrom = world.createImpulseJoint(
+      RAPIER.JointData.spherical(from.local, anchorLinkFrom),
+      fromBody,
+      body,
+      true
+    );
+    const jointTo = world.createImpulseJoint(
+      RAPIER.JointData.spherical(anchorLinkTo, to.local),
+      body,
+      toBody,
+      true
+    );
 
     const mesh = buildScxLinkVisual(length, linkDef.kind === "panhard");
     mesh.position.set(center.x, center.y, center.z);
     mesh.quaternion.copy(meshLookRotation(fromWorld, toWorld));
     scene.add(mesh);
-    links.push({ id: linkDef.id, body, mesh, def: linkDef, length });
+    links.push({
+      id: linkDef.id,
+      body,
+      mesh,
+      def: linkDef,
+      length,
+      from: { bodyKey: from.bodyKey, local: from.local },
+      to: { bodyKey: to.bodyKey, local: to.local },
+      jointFrom,
+      jointTo,
+    });
   }
 
   const reset = (chassisBody: RAPIER.RigidBody): void => {
-    // Match chassis yaw/pose â€” identity left axles 90 deg wrong after place() yaw.
+    // Match chassis yaw/pose — identity left axles 90 deg wrong after place() yaw.
     const cr = chassisBody.rotation();
     const rot = { x: cr.x, y: cr.y, z: cr.z, w: cr.w };
     for (const axle of axles.values()) {
@@ -309,7 +348,7 @@ export function buildKitSuspension(
     }
   };
 
-  return { axles, links, wheels: kit.wheels, reset, syncMeshes };
+  return { chassis, axles, links, wheels: kit.wheels, reset, syncMeshes };
 }
 
 export function hubWorldPosition(axle: KitAxleRuntime, hubOffset: Vec3): THREE.Vector3 {

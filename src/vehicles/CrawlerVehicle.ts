@@ -18,7 +18,9 @@ import {
   resetHubDriveState,
   type HubDriveState,
 } from "./kitHubDrive.ts";
-import { applyHangCeiling, applyKitLocate, buildKitLocate, type KitLocateRuntime } from "./kitLocate.ts";
+import { applyHardFoldStop } from "./kitFoldStop.ts";
+import { buildKitLocate, type KitLocateRuntime } from "./kitLocate.ts";
+import { kitDiagFlags } from "./kitDiagFlags.ts";
 import type { KitWheelDef, RigDef } from "./types.ts";
 import {
   buildScxChassisVisual,
@@ -119,33 +121,31 @@ export class CrawlerVehicle {
       return;
     }
     if (this.kit) {
-      // Phase 4: coilovers + hub Coulomb grip. No chassis-ray spring (would double-plant).
-      applyCoilovers(this.chassisBody, this.kit.axles, this.coilovers, dt);
-      if (this.locate) {
-        applyKitLocate(this.chassisBody, this.kit.axles, this.locate, dt);
+      // DOF ownership: shock-axis coilovers → hub Coulomb → Rapier step.
+      // Axle locate = spherical joints only; hang/soft WB/yaw teleports stay off hot path.
+      if (!kitDiagFlags.skipCoilovers) {
+        applyCoilovers(this.chassisBody, this.kit.axles, this.coilovers, dt);
       }
-      // Soft world-Y hang: drive-armed + not steering.
-      if (Math.abs(input.steer) < 0.15 && Math.abs(input.throttle) > 0.2) {
-        for (const axle of this.kit.axles.values()) {
-          applyHangCeiling(this.chassisBody, axle, dt);
+      if (!kitDiagFlags.skipHubDrive) {
+        const hubWheels = this.wheels.flatMap((w) => {
+          if (!w.kitWheel) return [];
+          const axle = this.kit!.axles.get(w.kitWheel.axle);
+          if (!axle) return [];
+          return [{ def: w.kitWheel, axle }];
+        });
+        applyHubDrive(world, this.chassisBody, this.kit.axles, hubWheels, this.rig, input, this.hubDriveState, dt);
+        for (const wheel of this.wheels) {
+          if (!wheel.kitWheel) continue;
+          if (wheel.sim.steered) {
+            wheel.sim.steer = this.hubDriveState.steer * this.rig.suspension.steerAngle;
+          }
+          if (wheel.sim.driven && input.throttle !== 0) {
+            wheel.sim.spin += (input.throttle * this.rig.maxSpeed * dt) / wheel.sim.radius;
+          }
         }
       }
-      const hubWheels = this.wheels.flatMap((w) => {
-        if (!w.kitWheel) return [];
-        const axle = this.kit!.axles.get(w.kitWheel.axle);
-        if (!axle) return [];
-        return [{ def: w.kitWheel, axle }];
-      });
-      applyHubDrive(world, this.chassisBody, this.kit.axles, hubWheels, this.rig, input, this.hubDriveState, dt);
-      for (const wheel of this.wheels) {
-        if (!wheel.kitWheel) continue;
-        if (wheel.sim.steered) {
-          wheel.sim.steer = this.hubDriveState.steer * this.rig.suspension.steerAngle;
-        }
-        if (wheel.sim.driven && input.throttle !== 0) {
-          wheel.sim.spin += (input.throttle * this.rig.maxSpeed * dt) / wheel.sim.radius;
-        }
-      }
+      // After drive: bumper must see post-thrust state (pre-drive order lost to tumble).
+      applyHardFoldStop(this.chassisBody, this.kit.axles, dt);
       return;
     }
     applyDrive(world, this.chassisBody, this.sims, this.rig, input, this.driveState, dt);

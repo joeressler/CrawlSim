@@ -15,7 +15,7 @@ RC rock-crawler vertical slice: box chassis, four wheels, ground + ramp, WASD dr
 - **A / D** or arrows â€” steer the front tires
 - **R** â€” reset pose and velocities from the rig spawn
 
-The ramp is straight ahead of spawn. A box ledge about one tire radius tall sits off to the right.
+The ramp is straight ahead of spawn. A box ledge sits off to the right; further right is a short rock course (crawl toward −Z). Stairs are on the left.
 
 ## Adding a rig
 

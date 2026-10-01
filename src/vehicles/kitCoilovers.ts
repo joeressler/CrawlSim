@@ -2,7 +2,7 @@
  * Phase 3 coilovers between chassis/axle shock mounts.
  * restLength = geometric mount distance at build (BOM-true; no rest bias fighting links).
  * Weight preload = mg/n so hang holds at mount geometry without fake rest stretch.
- * Forces along world-up (chassis-up coupled into roll on soft sphericals).
+ * Forces along shock mount axis (same metric as compression = restLength - dist).
  * Mild L/R anti-roll restores roll stiffness without pumping idle chatter.
  * Compress spring + preload; extension keeps tapered preload + light damper only.
  * Shock-axis bump packer uses a higher force budget than ride forceCap (no COM hang
@@ -110,17 +110,16 @@ export function applyCoilovers(
 ): void {
   if (dt <= 0 || coilovers.length === 0) return;
 
-  // World-up: chassis-up couples into roll when soft sphericals let rails twist
-  // on planted hubs. Mild ARB restores roll stiffness without idle chatter.
-  const ux = 0;
-  const uy = 1;
-  const uz = 0;
-
+  // Metric and delivery share the shock axis (mount-to-mount). Chassis-up-only
+  // delivery was tried to break coils+drive pitch coupling; it killed climb/upright.
   type Sample = {
     coil: CoiloverRuntime;
     axle: KitAxleRuntime;
     p0: { x: number; y: number; z: number };
     p1: { x: number; y: number; z: number };
+    ux: number;
+    uy: number;
+    uz: number;
     compression: number;
     closingSpeed: number;
     force: number;
@@ -132,7 +131,14 @@ export function applyCoilovers(
     if (!axle) continue;
     const p0 = worldPoint(chassis, c.chassisMount);
     const p1 = worldPoint(axle.body, c.axleMount);
-    const dist = Math.hypot(p0.x - p1.x, p0.y - p1.y, p0.z - p1.z);
+    const dx = p0.x - p1.x;
+    const dy = p0.y - p1.y;
+    const dz = p0.z - p1.z;
+    const dist = Math.hypot(dx, dy, dz);
+    if (dist < 1e-5) continue;
+    const ux = dx / dist;
+    const uy = dy / dist;
+    const uz = dz / dist;
     const compression = c.restLength - dist;
 
     const v0 = chassis.velocityAtPoint(p0);
@@ -144,7 +150,6 @@ export function applyCoilovers(
       force = c.springK * compression + c.preload + c.damperC * closingSpeed;
       const bumpDepth = compression - c.maxTravel;
       if (bumpDepth > 0) {
-        // Hard packer on shock axis only (mount impulses). No COM hang floor.
         const bump =
           c.springK * 14 * bumpDepth +
           c.springK * 180 * bumpDepth * bumpDepth +
@@ -152,14 +157,24 @@ export function applyCoilovers(
         force += bump;
       }
     } else {
-      // Extension: taper preload so gravity can settle; no spring pull fighting links.
       const taper = Math.max(0, 1 + compression / Math.max(1e-3, c.restLength * 0.25));
       force = c.preload * taper + c.damperC * 0.35 * closingSpeed;
     }
     const cap = compression > c.maxTravel ? c.bumpForceCap : c.forceCap;
     if (force > cap) force = cap;
     if (force < -c.forceCap * 0.35) force = -c.forceCap * 0.35;
-    samples.push({ coil: c, axle, p0, p1, compression, closingSpeed, force });
+    samples.push({
+      coil: c,
+      axle,
+      p0,
+      p1,
+      ux,
+      uy,
+      uz,
+      compression,
+      closingSpeed,
+      force,
+    });
   }
 
   const byAxle = new Map<string, Sample[]>();
@@ -188,8 +203,25 @@ export function applyCoilovers(
     }
   }
 
+  // Chassis-up projection of shock-axis force (Newton pair). Full shock-axis
+  // seeds coils+drive axle tumble (foldDiag A ~step 15). Climb uses hub Coulomb
+  // / face boost — not shock fore-aft.
+  const cr = chassis.rotation();
+  scratchQ.set(cr.x, cr.y, cr.z, cr.w);
+  scratchV.set(0, 1, 0).applyQuaternion(scratchQ);
+  const upLen = scratchV.length();
+  const upx = upLen > 1e-8 ? scratchV.x / upLen : 0;
+  const upy = upLen > 1e-8 ? scratchV.y / upLen : 1;
+  const upz = upLen > 1e-8 ? scratchV.z / upLen : 0;
+
   for (const s of samples) {
     const impulse = s.force * dt;
+    const along = s.ux * upx + s.uy * upy + s.uz * upz;
+    // Always chassis-up: full shock-axis under throttle re-seeds axle fold
+    // (foldDiag A). Lip climb is hub Coulomb / face boost, not shock fore-aft.
+    const ux = upx * along;
+    const uy = upy * along;
+    const uz = upz * along;
     chassis.applyImpulseAtPoint({ x: ux * impulse, y: uy * impulse, z: uz * impulse }, s.p0, true);
     s.axle.body.applyImpulseAtPoint({ x: -ux * impulse, y: -uy * impulse, z: -uz * impulse }, s.p1, true);
   }
