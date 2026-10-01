@@ -104,8 +104,19 @@ export class TrailScene {
     const ramp = physics.world.createRigidBody(
       RAPIER.RigidBodyDesc.fixed().setTranslation(0, rampY, rampZ).setRotation(rotation)
     );
+    // Round the nose. A sharp lip shoves the hub sphere backward and folds the axle under the rails.
+    const noseRadius = 0.03;
     physics.world.createCollider(
-      worldCollider(RAPIER.ColliderDesc.cuboid(half.x, half.y, half.z).setFriction(0.7).setRestitution(0)),
+      worldCollider(
+        RAPIER.ColliderDesc.roundCuboid(
+          half.x - noseRadius,
+          half.y - noseRadius,
+          half.z - noseRadius,
+          noseRadius
+        )
+          .setFriction(0.7)
+          .setRestitution(0)
+      ),
       ramp
     );
     const rampMesh = new THREE.Mesh(

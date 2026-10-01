@@ -19,7 +19,7 @@ import {
   type HubDriveState,
   type TireContactSnapshot,
 } from "./kitHubDrive.ts";
-import { applyHardFoldStop, holdAxleStation } from "./kitFoldStop.ts";
+import { applyHardFoldStop, holdAxleStation, projectAxleStation } from "./kitFoldStop.ts";
 import { applyDistanceLinks } from "./kitDistanceLinks.ts";
 import { buildKitLocate, type KitLocateRuntime } from "./kitLocate.ts";
 import { kitDiagFlags } from "./kitDiagFlags.ts";
@@ -168,6 +168,9 @@ export class CrawlerVehicle {
   }
 
   syncMeshes(): void {
+    if (this.kit && Math.abs(this.hubDriveState.steer) < 0.2) {
+      projectAxleStation(this.chassisBody, this.kit.axles);
+    }
     syncRigidBodyToObject(this.chassisBody, this.chassisMesh);
     this.kit?.syncMeshes();
     if (this.locate && this.kit) {
