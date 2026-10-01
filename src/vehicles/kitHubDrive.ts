@@ -31,9 +31,10 @@ const WRAP_FRACTION = 0.04;
 const WRAP_TORQUE_CAP = 6;
 
 const AXLE_YAW_K = 18;
-const AXLE_YAW_C = 6.4;
-const AXLE_YAW_TORQUE_CAP = 4.5;
-const AXLE_YAW_SOFT = 0.12;
+const AXLE_YAW_C = 7.2;
+const AXLE_YAW_TORQUE_CAP = 5;
+const AXLE_YAW_SOFT = 0.09;
+const AXLE_YAW_STABILIZE_LIMIT = 0.7;
 
 export type TireContactSnapshot = {
   id: WheelId;
@@ -136,7 +137,8 @@ function explodeCap(body: RAPIER.RigidBody): void {
 function applyAxleYawDamping(
   chassis: RAPIER.RigidBody,
   axles: Map<string, KitAxleRuntime>,
-  dt: number
+  dt: number,
+  steerTarget: number = 0
 ): void {
   if (!(dt > 0)) return;
   const cr = chassis.rotation();
@@ -159,14 +161,19 @@ function applyAxleYawDamping(
     scratchRight.crossVectors(lat, basis);
     const sin = basisUp.dot(scratchRight);
     const yaw = Math.atan2(sin, cos);
-    const abs = Math.abs(yaw);
+    const desiredYaw = axle.id === "front" ? steerTarget : 0;
+    const error = Math.atan2(Math.sin(yaw - desiredYaw), Math.cos(yaw - desiredYaw));
+    const abs = Math.abs(error);
+    // Keep front axles aligned to the commanded steer, but do not fight large
+    // terrain-induced rotation if the driver is not actively steering.
+    if (desiredYaw === 0 && abs > AXLE_YAW_STABILIZE_LIMIT) continue;
     const excess = Math.max(0, abs - AXLE_YAW_SOFT);
     const ang = axle.body.angvel();
     const omega = ang.x * basisUp.x + ang.y * basisUp.y + ang.z * basisUp.z;
-    const sign = yaw >= 0 ? 1 : -1;
-    // Rate damping stays on inside the deadband so the housing cannot scrub the hubs.
+    const sign = error >= 0 ? 1 : -1;
+    const steerPull = desiredYaw !== 0 ? -error * AXLE_YAW_K : 0;
     const torque = clamp(
-      (excess > 0 ? -sign * AXLE_YAW_K * excess : 0) - AXLE_YAW_C * omega,
+      steerPull + (excess > 0 ? -sign * AXLE_YAW_K * excess : 0) - AXLE_YAW_C * omega,
       -AXLE_YAW_TORQUE_CAP,
       AXLE_YAW_TORQUE_CAP
     );
@@ -305,12 +312,17 @@ export function applyHubDrive(
 
   const drive = kit.drive;
   const tire = kit.tire;
-  const desired = input.throttle * rig.maxSpeed;
-  const slew = drive.maxAccel * dt;
-  state.commandSpeed += clamp(desired - state.commandSpeed, -slew, slew);
   const blend = 1 - Math.exp(-dt / 0.08);
   state.steer += (input.steer - state.steer) * blend;
   if (input.steer === 0 && Math.abs(state.steer) < 0.02) state.steer = 0;
+
+  // Keep the turn assist subtle: reduce straight-line momentum only a little so the
+  // chassis naturally yaws without feeling like a forced point-turn or a visible speed brake.
+  const steerAmount = Math.abs(state.steer);
+  const turnDrag = 1 - Math.min(0.12, steerAmount * 0.1);
+  const desired = input.throttle * rig.maxSpeed * turnDrag;
+  const slew = drive.maxAccel * dt;
+  state.commandSpeed += clamp(desired - state.commandSpeed, -slew, slew);
 
   const rot = chassis.rotation();
   q.set(rot.x, rot.y, rot.z, rot.w);
@@ -318,7 +330,8 @@ export function applyHubDrive(
   const gravity = world.gravity;
   const gMag = Math.hypot(gravity.x, gravity.y, gravity.z) || 9.81;
   const upright = up.x * -gravity.x / gMag + up.y * -gravity.y / gMag + up.z * -gravity.z / gMag;
-  applyAxleYawDamping(chassis, axles, dt);
+  const reverseSign = input.throttle < 0 ? -1 : 1;
+  applyAxleYawDamping(chassis, axles, dt, state.steer * drive.steerAngle * reverseSign);
 
   const plants: WheelPlant[] = [];
   for (const wheel of wheels) {

@@ -13,7 +13,7 @@
     "y": 0.22,
     "z": 3
   },
-  "maxSpeed": 2.4,
+  "maxSpeed": 1.4,
   "cameraOffset": {
     "x": 0,
     "y": 0.55,
@@ -507,11 +507,11 @@
       }
     ],
     "drive": {
-      "mu": 1.95,
-      "driveTorque": 40,
-      "maxForce": 400,
-      "steerAngle": 0.48,
-      "maxAccel": 13,
+      "mu": 10,
+      "driveTorque": 62,
+      "maxForce": 760,
+      "steerAngle": 0.6,
+      "maxAccel": 14,
       "minNormalY": 0.14,
       "minUpright": 0.28
     },
