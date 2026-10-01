@@ -1,62 +1,519 @@
 {
   "parts": {
-    "chassis": "stock-box",
-    "tires": "stock-cyl",
+    "chassis": "scx101-rail",
+    "tires": "scx101-1.9",
     "motor": "stock-crawl",
-    "battery": "unmodeled"
+    "battery": "unmodeled",
+    "axles": "scx101-solid",
+    "links": "scx101-4link",
+    "shocks": "scx101-coil"
   },
-  "chassis": {
-    "halfExtents": { "x": 0.38, "y": 0.1, "z": 0.34 },
-    "mass": 5
+  "spawn": {
+    "x": 0,
+    "y": 0.22,
+    "z": 3
   },
-  "spawn": { "x": 0, "y": 0.65, "z": 5 },
-  "wheels": [
-    {
-      "id": "fl",
-      "offset": { "x": -0.48, "y": 0.02, "z": -0.48 },
-      "radius": 0.24,
-      "width": 0.18,
-      "driven": true,
-      "steered": true
+  "maxSpeed": 2.4,
+  "cameraOffset": {
+    "x": 0,
+    "y": 0.55,
+    "z": 1.1
+  },
+  "kit": {
+    "chassis": {
+      "halfExtents": {
+        "x": 0.045,
+        "y": 0.028,
+        "z": 0.14
+      },
+      "mass": 3.5,
+      "mounts": [
+        {
+          "id": "fl_lower",
+          "offset": {
+            "x": -0.0375,
+            "y": -0.015,
+            "z": -0.0865
+          }
+        },
+        {
+          "id": "fr_lower",
+          "offset": {
+            "x": 0.0375,
+            "y": -0.015,
+            "z": -0.0865
+          }
+        },
+        {
+          "id": "fl_upper",
+          "offset": {
+            "x": -0.0375,
+            "y": 0.04,
+            "z": -0.062
+          }
+        },
+        {
+          "id": "fr_upper",
+          "offset": {
+            "x": 0.0375,
+            "y": 0.04,
+            "z": -0.062
+          }
+        },
+        {
+          "id": "rl_lower",
+          "offset": {
+            "x": -0.0375,
+            "y": -0.015,
+            "z": 0.0865
+          }
+        },
+        {
+          "id": "rr_lower",
+          "offset": {
+            "x": 0.0375,
+            "y": -0.015,
+            "z": 0.0865
+          }
+        },
+        {
+          "id": "rl_upper",
+          "offset": {
+            "x": -0.0375,
+            "y": 0.04,
+            "z": 0.062
+          }
+        },
+        {
+          "id": "rr_upper",
+          "offset": {
+            "x": 0.0375,
+            "y": 0.04,
+            "z": 0.062
+          }
+        },
+        {
+          "id": "fl_shock",
+          "offset": {
+            "x": -0.050625,
+            "y": 0.06,
+            "z": -0.1565
+          }
+        },
+        {
+          "id": "fr_shock",
+          "offset": {
+            "x": 0.050625,
+            "y": 0.06,
+            "z": -0.1565
+          }
+        },
+        {
+          "id": "rl_shock",
+          "offset": {
+            "x": -0.050625,
+            "y": 0.06,
+            "z": 0.1565
+          }
+        },
+        {
+          "id": "rr_shock",
+          "offset": {
+            "x": 0.050625,
+            "y": 0.06,
+            "z": 0.1565
+          }
+        },
+        {
+          "id": "panhard_front",
+          "offset": {
+            "x": 0.06,
+            "y": 0,
+            "z": -0.1565
+          }
+        },
+        {
+          "id": "panhard_rear",
+          "offset": {
+            "x": 0.06,
+            "y": 0,
+            "z": 0.1565
+          }
+        }
+      ]
     },
-    {
-      "id": "fr",
-      "offset": { "x": 0.48, "y": 0.02, "z": -0.48 },
-      "radius": 0.24,
-      "width": 0.18,
-      "driven": true,
-      "steered": true
-    },
-    {
-      "id": "rl",
-      "offset": { "x": -0.48, "y": 0.02, "z": 0.48 },
-      "radius": 0.24,
-      "width": 0.18,
-      "driven": true,
-      "steered": false
-    },
-    {
-      "id": "rr",
-      "offset": { "x": 0.48, "y": 0.02, "z": 0.48 },
-      "radius": 0.24,
-      "width": 0.18,
-      "driven": true,
-      "steered": false
+    "axles": [
+      {
+        "id": "front",
+        "offset": {
+          "x": 0,
+          "y": -0.055,
+          "z": -0.1565
+        },
+        "mounts": [
+          {
+            "id": "left_lower",
+            "offset": {
+              "x": -0.0375,
+              "y": 0.01,
+              "z": 0
+            }
+          },
+          {
+            "id": "right_lower",
+            "offset": {
+              "x": 0.0375,
+              "y": 0.01,
+              "z": 0
+            }
+          },
+          {
+            "id": "left_upper",
+            "offset": {
+              "x": -0.0375,
+              "y": 0.065,
+              "z": 0.012
+            }
+          },
+          {
+            "id": "right_upper",
+            "offset": {
+              "x": 0.0375,
+              "y": 0.065,
+              "z": 0.012
+            }
+          },
+          {
+            "id": "left_shock",
+            "offset": {
+              "x": -0.050625,
+              "y": 0.012,
+              "z": 0
+            }
+          },
+          {
+            "id": "right_shock",
+            "offset": {
+              "x": 0.050625,
+              "y": 0.012,
+              "z": 0
+            }
+          },
+          {
+            "id": "panhard",
+            "offset": {
+              "x": -0.06,
+              "y": 0.04,
+              "z": 0
+            }
+          }
+        ]
+      },
+      {
+        "id": "rear",
+        "offset": {
+          "x": 0,
+          "y": -0.055,
+          "z": 0.1565
+        },
+        "mounts": [
+          {
+            "id": "left_lower",
+            "offset": {
+              "x": -0.0375,
+              "y": 0.01,
+              "z": 0
+            }
+          },
+          {
+            "id": "right_lower",
+            "offset": {
+              "x": 0.0375,
+              "y": 0.01,
+              "z": 0
+            }
+          },
+          {
+            "id": "left_upper",
+            "offset": {
+              "x": -0.0375,
+              "y": 0.065,
+              "z": 0.012
+            }
+          },
+          {
+            "id": "right_upper",
+            "offset": {
+              "x": 0.0375,
+              "y": 0.065,
+              "z": 0.012
+            }
+          },
+          {
+            "id": "left_shock",
+            "offset": {
+              "x": -0.050625,
+              "y": 0.012,
+              "z": 0
+            }
+          },
+          {
+            "id": "right_shock",
+            "offset": {
+              "x": 0.050625,
+              "y": 0.012,
+              "z": 0
+            }
+          },
+          {
+            "id": "panhard",
+            "offset": {
+              "x": -0.06,
+              "y": 0.04,
+              "z": 0
+            }
+          }
+        ]
+      }
+    ],
+    "links": [
+      {
+        "id": "fl_lower",
+        "from": {
+          "part": "chassis",
+          "mount": "fl_lower"
+        },
+        "to": {
+          "part": "front",
+          "mount": "left_lower"
+        }
+      },
+      {
+        "id": "fr_lower",
+        "from": {
+          "part": "chassis",
+          "mount": "fr_lower"
+        },
+        "to": {
+          "part": "front",
+          "mount": "right_lower"
+        }
+      },
+      {
+        "id": "fl_upper",
+        "from": {
+          "part": "chassis",
+          "mount": "fl_upper"
+        },
+        "to": {
+          "part": "front",
+          "mount": "left_upper"
+        }
+      },
+      {
+        "id": "fr_upper",
+        "from": {
+          "part": "chassis",
+          "mount": "fr_upper"
+        },
+        "to": {
+          "part": "front",
+          "mount": "right_upper"
+        }
+      },
+      {
+        "id": "rl_lower",
+        "from": {
+          "part": "chassis",
+          "mount": "rl_lower"
+        },
+        "to": {
+          "part": "rear",
+          "mount": "left_lower"
+        }
+      },
+      {
+        "id": "rr_lower",
+        "from": {
+          "part": "chassis",
+          "mount": "rr_lower"
+        },
+        "to": {
+          "part": "rear",
+          "mount": "right_lower"
+        }
+      },
+      {
+        "id": "rl_upper",
+        "from": {
+          "part": "chassis",
+          "mount": "rl_upper"
+        },
+        "to": {
+          "part": "rear",
+          "mount": "left_upper"
+        }
+      },
+      {
+        "id": "rr_upper",
+        "from": {
+          "part": "chassis",
+          "mount": "rr_upper"
+        },
+        "to": {
+          "part": "rear",
+          "mount": "right_upper"
+        }
+      },
+      {
+        "id": "front_panhard",
+        "kind": "panhard",
+        "from": {
+          "part": "chassis",
+          "mount": "panhard_front"
+        },
+        "to": {
+          "part": "front",
+          "mount": "panhard"
+        }
+      },
+      {
+        "id": "rear_panhard",
+        "kind": "panhard",
+        "from": {
+          "part": "chassis",
+          "mount": "panhard_rear"
+        },
+        "to": {
+          "part": "rear",
+          "mount": "panhard"
+        }
+      }
+    ],
+    "shocks": [
+      {
+        "id": "fl",
+        "from": {
+          "part": "chassis",
+          "mount": "fl_shock"
+        },
+        "to": {
+          "part": "front",
+          "mount": "left_shock"
+        },
+        "restLength": 0.1,
+        "springK": 260,
+        "damperC": 110,
+        "maxTravel": 0.035
+      },
+      {
+        "id": "fr",
+        "from": {
+          "part": "chassis",
+          "mount": "fr_shock"
+        },
+        "to": {
+          "part": "front",
+          "mount": "right_shock"
+        },
+        "restLength": 0.1,
+        "springK": 260,
+        "damperC": 110,
+        "maxTravel": 0.035
+      },
+      {
+        "id": "rl",
+        "from": {
+          "part": "chassis",
+          "mount": "rl_shock"
+        },
+        "to": {
+          "part": "rear",
+          "mount": "left_shock"
+        },
+        "restLength": 0.1,
+        "springK": 260,
+        "damperC": 110,
+        "maxTravel": 0.035
+      },
+      {
+        "id": "rr",
+        "from": {
+          "part": "chassis",
+          "mount": "rr_shock"
+        },
+        "to": {
+          "part": "rear",
+          "mount": "right_shock"
+        },
+        "restLength": 0.1,
+        "springK": 260,
+        "damperC": 110,
+        "maxTravel": 0.035
+      }
+    ],
+    "wheels": [
+      {
+        "id": "fl",
+        "axle": "front",
+        "hubOffset": {
+          "x": -0.115,
+          "y": 0,
+          "z": 0
+        },
+        "radius": 0.06,
+        "width": 0.045,
+        "driven": true,
+        "steered": true
+      },
+      {
+        "id": "fr",
+        "axle": "front",
+        "hubOffset": {
+          "x": 0.115,
+          "y": 0,
+          "z": 0
+        },
+        "radius": 0.06,
+        "width": 0.045,
+        "driven": true,
+        "steered": true
+      },
+      {
+        "id": "rl",
+        "axle": "rear",
+        "hubOffset": {
+          "x": -0.115,
+          "y": 0,
+          "z": 0
+        },
+        "radius": 0.06,
+        "width": 0.045,
+        "driven": true,
+        "steered": false
+      },
+      {
+        "id": "rr",
+        "axle": "rear",
+        "hubOffset": {
+          "x": 0.115,
+          "y": 0,
+          "z": 0
+        },
+        "radius": 0.06,
+        "width": 0.045,
+        "driven": true,
+        "steered": false
+      }
+    ],
+    "drive": {
+      "mu": 1.95,
+      "driveTorque": 40,
+      "maxForce": 400,
+      "steerAngle": 0.48,
+      "maxAccel": 13,
+      "minNormalY": 0.14,
+      "minUpright": 0.28
     }
-  ],
-  "suspension": {
-    "restLength": 0.55,
-    "springK": 125,
-    "damperC": 38,
-    "mu": 1.45,
-    "driveTorque": 22,
-    "maxForce": 160,
-    "steerAngle": 0.55,
-    "maxAccel": 4.5,
-    "minNormalY": 0.4,
-    "maxTravel": 0.22,
-    "minUpright": 0.2
-  },
-  "maxSpeed": 2.2,
-  "cameraOffset": { "x": 0, "y": 4, "z": 8 }
+  }
 }

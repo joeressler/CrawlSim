@@ -86,11 +86,20 @@ Garage UI, multiple trails, battery model, networking, assets pipeline.
 Start by inspecting the current Vite project, then implement module-by-module, wiring Game last. Do not leave a god-file main.ts.
 
 ## Learned User Preferences
-- Prefer real crawl behavior: per-wheel suspension and grip so the rig can climb lips/ledges, not arcade slide or spin-in-place.
+- Prefer real crawl behavior: per-wheel/hub suspension and grip so the rig can climb lips/ledges/stairs with tire pull-up (including rear when high-centered on the skid), not arcade slide or spin-in-place.
+- Prefer kit-accurate solid-axle location via constrained linkage (fixed-length 4-link + Panhard / joints), not soft springs, ropes, positional projection, or velocity-copy assists as the primary locator.
+- Prefer stiff/hard link constraints so axles do not flop longitudinally or fold under on throttle/reverse.
 - Keep tire meshes visual-only; do not rely on solid wheel mesh colliders to climb.
 - Do not drive with a single chassis impulse along world/forward.
 - Steering should pull the chassis in reverse as well as forward (no reverse-only slide).
+- Stay on the Vite + Three.js + Rapier kit path for suspension work rather than switching engines for fidelity.
 
 ## Learned Workspace Facts
-- Current drive model is per-wheel suspension rays plus Coulomb friction in `src/vehicles/drive.ts`; chassis keeps a cuboid collider.
-- Suspension and grip tunables live in `src/data/rigs/stock.json` under `RigDef.suspension` (with optional per-wheel overrides).
+- Kit path DOF ownership: oriented capsule link RBs + dual spherical ImpulseJoints locate axles; hub balls use Rapier friction 0 (normal plant only); coilovers measure on shock axis but deliver chassis-up projection only (no deepBump shock-axis — that re-seeds fold); Coulomb in `kitHubDrive.ts` owns long/lat grip + face climb; crumple pads + `kitFoldStop` are travel bumpers.
+- Kit `preStep` is coilovers → hubDrive → hard fold stop → Rapier step. Soft planar follow is disabled (seeded coils+drive tumble). Soft WB / hang ceiling / yaw `setRotation` stay off the hot path.
+- Planar COM motor is airborne-only (and upright/speed gated); planted thrust is Coulomb (COM-delivered long) plus face climb. `flatPlant` uses non-face support normals only (ny>0.97) so brief lip casts and ~16° trail ramps do not flip climbMul/pitchCut.
+- Face/lip probes run for driven hubs lacking solid down-plant (skid hang / steep reject) so rear tires keep climb traction when high-centered; rear also gets a down-forward cast and drive-scale from face plants. `onDeck`/crest cuts require near-level normals so ramp attitude is not treated as a crest.
+- Airborne path also runs speed/launch clamps (previously skipped → crest explode). Handling numbers in `src/data/rigs/stock.json` (`kit.drive` / shocks).
+- Fold-under (foldDiag A+E): coils+drive; mitigations: chassis-up coils, axle I_xx≈0.025, fold stop (axle-biased Z + pitch, rate bleed only while translating). Climb is restored (ramp/stairs/ledge pull); crest hang/tip and flat-throttle axle pitch remain soft spots.
+- Acceptance suite: `npm run settle` and `npm run crawl-test` (fold, hang, climb, reverse-fold, upright, link integrity).
+- Link meshes look-at chassis/axle mount endpoints each frame (spherical joints free-spin about the link long axis, so RB rotation must not drive visuals).
