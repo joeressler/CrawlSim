@@ -51,17 +51,6 @@ function bodyWorldPoint(body: RAPIER.RigidBody, local: Vec3): Vec3 {
   return { x: t.x + scratchV.x, y: t.y + scratchV.y, z: t.z + scratchV.z };
 }
 
-function jointWorldAnchor(
-  joint: RAPIER.ImpulseJoint | undefined,
-  which: 1 | 2
-): Vec3 | null {
-  if (!joint || !joint.isValid()) return null;
-  const a = which === 1 ? joint.anchor1() : joint.anchor2();
-  const body = which === 1 ? joint.body1() : joint.body2();
-  if (!body) return null;
-  return bodyWorldPoint(body, { x: a.x, y: a.y, z: a.z });
-}
-
 function dist(a: Vec3, b: Vec3): number {
   return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 }
@@ -117,32 +106,12 @@ export function sampleSuspensionDiag(kit: KitSuspensionRuntime): SuspensionDiag 
     maxLinkAbsError = Math.max(maxLinkAbsError, absError);
     maxLinkRelError = Math.max(maxLinkRelError, relError);
 
-    const jFrom = link.jointFrom;
-    const jTo = link.jointTo;
-    const jointFromValid = !!jFrom && jFrom.isValid();
-    const jointToValid = !!jTo && jTo.isValid();
-
-    // Coincidence: joint anchor world positions should match mount world points.
-    let anchorCoincidenceFrom = Number.NaN;
-    let anchorCoincidenceTo = Number.NaN;
-    if (fromBody && jointFromValid && jFrom) {
-      const mountW = bodyWorldPoint(fromBody, link.from.local);
-      // jointFrom connects fromBody (anchor1) to link (anchor2)
-      const a1 = jointWorldAnchor(jFrom, 1);
-      const a2 = jointWorldAnchor(jFrom, 2);
-      if (a1 && a2) {
-        anchorCoincidenceFrom = Math.max(dist(a1, mountW), dist(a1, a2));
-      }
-    }
-    if (toBody && jointToValid && jTo) {
-      const mountW = bodyWorldPoint(toBody, link.to.local);
-      const a1 = jointWorldAnchor(jTo, 1);
-      const a2 = jointWorldAnchor(jTo, 2);
-      if (a1 && a2) {
-        // jointTo connects link (anchor1) to toBody (anchor2)
-        anchorCoincidenceTo = Math.max(dist(a2, mountW), dist(a1, a2));
-      }
-    }
+    // Distance rods anchor on the mounts. There is no intermediate joint body,
+    // so coincidence is zero when both endpoints exist; length error is absError.
+    const jointFromValid = fromValid && toValid;
+    const jointToValid = jointFromValid;
+    const anchorCoincidenceFrom = jointFromValid ? 0 : Number.NaN;
+    const anchorCoincidenceTo = jointToValid ? 0 : Number.NaN;
 
     links.push({
       id: link.id,

@@ -15,6 +15,7 @@ export class PhysicsWorld {
     return new PhysicsWorld();
   }
 
+  /** One Rapier step. Callers subdivide frames to `FIXED_DT` (see `forEachSubstep`). */
   step(dt: number): void {
     this.world.timestep = dt;
     this.world.step();

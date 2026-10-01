@@ -4,12 +4,15 @@ import { loadStockRig } from "../src/data/loadRig.ts";
 import { PhysicsWorld } from "../src/physics/PhysicsWorld.ts";
 import { CrawlerVehicle } from "../src/vehicles/CrawlerVehicle.ts";
 import { TrailScene } from "../src/world/TrailScene.ts";
+import { forEachSubstep } from "../src/game/Time.ts";
 
 /**
  * Idle settle metrics (importable). CLI runs only when this file is the entrypoint.
  */
 export type SettleMetrics = {
   maxAbsVy: number;
+  /** Largest frame-to-frame change in chassis vertical speed during the idle window. */
+  maxStepDeltaVy: number;
   yawRad: number;
   planarDrift: number;
   axleMaxAbsVy: number;
@@ -33,6 +36,12 @@ export async function runIdleSettle(seconds = 5, dt = 1 / 60): Promise<SettleMet
   physics.world.integrationParameters.normalizedAllowedLinearError = 0.0005;
   const trail = new TrailScene(physics, rig.spawn);
   const vehicle = new CrawlerVehicle(physics, trail.scene, rig);
+  const tick = (throttle: number, steer: number): void => {
+    forEachSubstep(dt, (stepDt) => {
+      vehicle.preStep(physics.world, { throttle, steer, reset: false }, stepDt);
+      physics.step(stepDt);
+    });
+  };
 
   const frames = Math.round(seconds / dt);
   const windowSec = 1.2;
@@ -40,6 +49,8 @@ export async function runIdleSettle(seconds = 5, dt = 1 / 60): Promise<SettleMet
   const measureAfter = frames - windowFrames;
 
   let maxAbsVy = 0;
+  let maxStepDeltaVy = 0;
+  let prevVy = 0;
   let axleMaxAbsVy = 0;
   let yawStart = 0;
   let planarStart = { x: 0, z: 0 };
@@ -49,8 +60,7 @@ export async function runIdleSettle(seconds = 5, dt = 1 / 60): Promise<SettleMet
   let relHang = 0;
 
   for (let i = 0; i < frames; i += 1) {
-    vehicle.preStep(physics.world, { throttle: 0, steer: 0, reset: false }, dt);
-    physics.step(dt);
+    tick(0, 0);
     vehicle.syncMeshes();
 
     if (i === measureAfter) {
@@ -63,11 +73,16 @@ export async function runIdleSettle(seconds = 5, dt = 1 / 60): Promise<SettleMet
       planarStart = { x: t.x, z: t.z };
       marked = true;
       maxAbsVy = 0;
+      maxStepDeltaVy = 0;
+      prevVy = vehicle.chassisBody.linvel().y;
       axleMaxAbsVy = 0;
     }
     if (i < measureAfter) continue;
 
-    maxAbsVy = Math.max(maxAbsVy, Math.abs(vehicle.chassisBody.linvel().y));
+    const vy = vehicle.chassisBody.linvel().y;
+    maxAbsVy = Math.max(maxAbsVy, Math.abs(vy));
+    maxStepDeltaVy = Math.max(maxStepDeltaVy, Math.abs(vy - prevVy));
+    prevVy = vy;
     const kit = vehicle.kitSuspension();
     if (kit) {
       for (const axle of kit.axles.values()) {
@@ -100,8 +115,7 @@ export async function runIdleSettle(seconds = 5, dt = 1 / 60): Promise<SettleMet
   // contacts and starves post-reset steer yaw (false settle fail).
   vehicle.reset();
   for (let i = 0; i < 30; i += 1) {
-    vehicle.preStep(physics.world, { throttle: 0, steer: 0, reset: false }, dt);
-    physics.step(dt);
+    tick(0, 0);
   }
   const yawBefore = new THREE.Euler().setFromQuaternion(
     new THREE.Quaternion(
@@ -113,8 +127,7 @@ export async function runIdleSettle(seconds = 5, dt = 1 / 60): Promise<SettleMet
     "YXZ"
   ).y;
   for (let i = 0; i < 140; i += 1) {
-    vehicle.preStep(physics.world, { throttle: 0.7, steer: 1, reset: false }, dt);
-    physics.step(dt);
+    tick(0.7, 1);
     vehicle.syncMeshes();
   }
   const yawAfter = new THREE.Euler().setFromQuaternion(
@@ -130,12 +143,10 @@ export async function runIdleSettle(seconds = 5, dt = 1 / 60): Promise<SettleMet
 
   vehicle.reset();
   for (let i = 0; i < 40; i += 1) {
-    vehicle.preStep(physics.world, { throttle: 0, steer: 0, reset: false }, dt);
-    physics.step(dt);
+    tick(0, 0);
   }
   for (let i = 0; i < 90; i += 1) {
-    vehicle.preStep(physics.world, { throttle: -1, steer: 0, reset: false }, dt);
-    physics.step(dt);
+    tick(-1, 0);
     vehicle.syncMeshes();
   }
   const revYawBefore = new THREE.Euler().setFromQuaternion(
@@ -148,8 +159,7 @@ export async function runIdleSettle(seconds = 5, dt = 1 / 60): Promise<SettleMet
     "YXZ"
   ).y;
   for (let i = 0; i < 100; i += 1) {
-    vehicle.preStep(physics.world, { throttle: -0.8, steer: 1, reset: false }, dt);
-    physics.step(dt);
+    tick(-0.8, 1);
     vehicle.syncMeshes();
   }
   const revYawAfter = new THREE.Euler().setFromQuaternion(
@@ -167,24 +177,22 @@ export async function runIdleSettle(seconds = 5, dt = 1 / 60): Promise<SettleMet
   // joint stress does not leave Coulomb thrusting the wrong way.
   vehicle.reset();
   for (let i = 0; i < 90; i += 1) {
-    vehicle.preStep(physics.world, { throttle: 0, steer: 0, reset: false }, dt);
-    physics.step(dt);
+    tick(0, 0);
   }
   vehicle.reset();
   for (let i = 0; i < 40; i += 1) {
-    vehicle.preStep(physics.world, { throttle: 0, steer: 0, reset: false }, dt);
-    physics.step(dt);
+    tick(0, 0);
   }
   const z0 = vehicle.chassisBody.translation().z;
   for (let i = 0; i < 200; i += 1) {
-    vehicle.preStep(physics.world, { throttle: 1, steer: 0, reset: false }, dt);
-    physics.step(dt);
+    tick(1, 0);
     vehicle.syncMeshes();
   }
   const driveDeltaZ = z0 - vehicle.chassisBody.translation().z;
 
   return {
     maxAbsVy,
+    maxStepDeltaVy,
     yawRad,
     planarDrift,
     axleMaxAbsVy,

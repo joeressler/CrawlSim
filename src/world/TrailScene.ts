@@ -9,6 +9,21 @@ function worldCollider(desc: RAPIER.ColliderDesc): RAPIER.ColliderDesc {
   return desc.setCollisionGroups(WORLD_GROUPS).setSolverGroups(WORLD_GROUPS);
 }
 
+/** Fillet so a tire ray sees a rounded lip instead of a knife edge. Outer size stays put. */
+const EDGE_RADIUS = 0.008;
+
+function filletedCuboid(half: CuboidHalf, friction: number): RAPIER.ColliderDesc {
+  const r = Math.min(EDGE_RADIUS, half.x * 0.35, half.y * 0.35, half.z * 0.35);
+  return RAPIER.ColliderDesc.roundCuboid(
+    Math.max(half.x - r, 0.004),
+    Math.max(half.y - r, 0.004),
+    Math.max(half.z - r, 0.004),
+    r
+  )
+    .setFriction(friction)
+    .setRestitution(0);
+}
+
 type CuboidHalf = { x: number; y: number; z: number };
 type CuboidPos = { x: number; y: number; z: number };
 
@@ -18,6 +33,8 @@ type FixedCuboidOpts = {
   rot?: THREE.Quaternion;
   friction: number;
   material: THREE.Material;
+  /** Rounded collider. The visible box stays sharp. */
+  fillet?: boolean;
 };
 
 export class TrailScene {
@@ -34,24 +51,21 @@ export class TrailScene {
     this.createLedge(physics);
     this.createObstacleCourse(physics);
     this.createRockCourse(physics);
+    this.createCrawlLip(physics);
   }
 
   /** Fixed world cuboid: collider + matching mesh. */
   private addFixedCuboid(physics: PhysicsWorld, opts: FixedCuboidOpts): void {
-    const { half, pos, rot, friction, material } = opts;
+    const { half, pos, rot, friction, material, fillet } = opts;
     const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(pos.x, pos.y, pos.z);
     if (rot) {
       bodyDesc.setRotation({ x: rot.x, y: rot.y, z: rot.z, w: rot.w });
     }
     const body = physics.world.createRigidBody(bodyDesc);
-    physics.world.createCollider(
-      worldCollider(
-        RAPIER.ColliderDesc.cuboid(half.x, half.y, half.z)
-          .setFriction(friction)
-          .setRestitution(0)
-      ),
-      body
-    );
+    const shape = fillet
+      ? filletedCuboid(half, friction)
+      : RAPIER.ColliderDesc.cuboid(half.x, half.y, half.z).setFriction(friction).setRestitution(0);
+    physics.world.createCollider(worldCollider(shape), body);
     const mesh = new THREE.Mesh(
       new THREE.BoxGeometry(half.x * 2, half.y * 2, half.z * 2),
       material
@@ -111,10 +125,7 @@ export class TrailScene {
     const body = physics.world.createRigidBody(
       RAPIER.RigidBodyDesc.fixed().setTranslation(position.x, position.y, position.z)
     );
-    physics.world.createCollider(
-      worldCollider(RAPIER.ColliderDesc.cuboid(half.x, half.y, half.z).setFriction(0.9).setRestitution(0)),
-      body
-    );
+    physics.world.createCollider(worldCollider(filletedCuboid(half, 0.9)), body);
     const mesh = new THREE.Mesh(
       new THREE.BoxGeometry(half.x * 2, half.y * 2, half.z * 2),
       new THREE.MeshStandardMaterial({ color: 0x9a6b3f })
@@ -141,11 +152,7 @@ export class TrailScene {
         RAPIER.RigidBodyDesc.fixed().setTranslation(laneX, halfY, z)
       );
       physics.world.createCollider(
-        worldCollider(
-          RAPIER.ColliderDesc.cuboid(halfX, halfY, halfZ)
-            .setFriction(0.9)
-            .setRestitution(0)
-        ),
+        worldCollider(filletedCuboid({ x: halfX, y: halfY, z: halfZ }, 0.9)),
         body
       );
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(halfX * 2, h, halfZ * 2), mat);
@@ -166,11 +173,7 @@ export class TrailScene {
             .setRotation({ x: noseQuat.x, y: noseQuat.y, z: noseQuat.z, w: noseQuat.w })
         );
         physics.world.createCollider(
-          worldCollider(
-            RAPIER.ColliderDesc.cuboid(halfX, halfSlope, halfThick)
-              .setFriction(0.95)
-              .setRestitution(0)
-          ),
+          worldCollider(filletedCuboid({ x: halfX, y: halfSlope, z: halfThick }, 0.95)),
           noseBody
         );
         const noseMesh = new THREE.Mesh(
@@ -207,7 +210,7 @@ export class TrailScene {
       const rot = euler
         ? new THREE.Quaternion().setFromEuler(new THREE.Euler(euler.x, euler.y, euler.z))
         : undefined;
-      this.addFixedCuboid(physics, { half, pos, rot, friction, material: mat });
+      this.addFixedCuboid(physics, { half, pos, rot, friction, material: mat, fillet: true });
     };
 
     // Entry scatter (~0.5–1R) — staggered left/right toward −Z.
@@ -239,6 +242,7 @@ export class TrailScene {
         rot: noseQuat,
         friction: 0.95,
         material: mat,
+        fillet: true,
       });
     }
     // Off-camber slot rock beside shelf (intentional articulation).
@@ -249,5 +253,17 @@ export class TrailScene {
     rock({ x: 0.18, y: 0.03, z: 0.2 }, { x: laneX + 0.3, y: 0.03, z: -1.9 }, { x: 0.1, y: -0.22, z: -0.12 });
     rock({ x: 0.14, y: 0.022, z: 0.14 }, { x: laneX - 0.1, y: 0.022, z: -2.3 }, { x: 0.15, y: 0.28, z: 0.05 });
     rock({ x: 0.16, y: 0.018, z: 0.12 }, { x: laneX + 0.25, y: 0.018, z: -2.65 }, { x: -0.1, y: -0.18, z: 0.1 });
+  }
+
+  /**
+   * Sharp lip about 0.75 tire radii tall, off the ramp line (x = 10).
+   * Headless crawl checks creep this edge instead of bouncing off or sticking.
+   */
+  private createCrawlLip(physics: PhysicsWorld): void {
+    const height = 0.045;
+    const half = { x: 0.7, y: height / 2, z: 0.35 };
+    const pos = { x: 10, y: half.y, z: -0.2 };
+    const mat = new THREE.MeshStandardMaterial({ color: 0x8d7352 });
+    this.addFixedCuboid(physics, { half, pos, friction: 0.95, material: mat, fillet: true });
   }
 }

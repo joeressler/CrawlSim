@@ -123,7 +123,24 @@ export type KitWheelDef = {
   mu?: number;
 };
 
-/** Drive / grip tunables shared by the chassis-ray path (and later axle drive). */
+/**
+ * Soft carcass. Radial springs on the axle are the plant; the hub sphere is only
+ * the collapsed core (`radius * (1 - maxDeflection)`).
+ */
+export type TireDef = {
+  /** N/m for the whole patch. Split across the rays that are down together. */
+  radialK: number;
+  /** Compression damper, N·s/m, overdamped so a lip does not bounce. */
+  radialC: number;
+  /** Rebound damper. Lower than `radialC`, and the spring never sucks. */
+  reboundC: number;
+  /** Fraction of unloaded radius the carcass may squash before the hard core. */
+  maxDeflection: number;
+  /** One-pole time constant (s) on ray deflection so edge flicker cannot spike. */
+  deflectionFilter: number;
+};
+
+/** Drive / grip tunables shared by the chassis-ray path and locked-axle drive. */
 export type DriveDef = {
   mu: number;
   driveTorque: number;
@@ -142,6 +159,7 @@ export type KitDef = {
   shocks: ShockDef[];
   wheels: KitWheelDef[];
   drive: DriveDef;
+  tire: TireDef;
 };
 
 /**

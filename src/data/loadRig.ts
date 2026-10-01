@@ -3,6 +3,7 @@ import type {
   AxleDef,
   KitDef,
   MountDef,
+  TireDef,
   MountRef,
   RawRigJson,
   RigDef,
@@ -10,6 +11,18 @@ import type {
   Vec3,
   WheelDef,
 } from "../vehicles/types.ts";
+
+function validateTire(tire: TireDef): void {
+  if (!(tire.radialK > 0)) throw new Error("kit.tire.radialK must be > 0");
+  if (!(tire.radialC >= 0)) throw new Error("kit.tire.radialC must be >= 0");
+  if (!(tire.reboundC >= 0)) throw new Error("kit.tire.reboundC must be >= 0");
+  if (!(tire.maxDeflection > 0.05 && tire.maxDeflection < 0.65)) {
+    throw new Error("kit.tire.maxDeflection must be between 0.05 and 0.65");
+  }
+  if (!(tire.deflectionFilter > 0 && tire.deflectionFilter < 0.1)) {
+    throw new Error("kit.tire.deflectionFilter must be between 0 and 0.1 s");
+  }
+}
 
 function addVec(a: Vec3, b: Vec3): Vec3 {
   return { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z };
@@ -69,6 +82,7 @@ function validateKit(kit: KitDef): Map<string, AxleDef> {
   if (kit.shocks.length === 0) {
     throw new Error("kit.shocks must include at least one shock to seed legacy suspension");
   }
+  validateTire(kit.tire);
 
   const wheelIds = new Set<string>();
   for (const wheel of kit.wheels) {
@@ -138,7 +152,7 @@ function wheelsFromKit(kit: KitDef, axles: Map<string, AxleDef>): WheelDef[] {
  * Dual-read loader:
  * - Kit BOM present → validate mounts, fill legacy chassis / wheels.offset / suspension.
  * - Legacy-only JSON → pass through unchanged (no kit on RigDef).
- * CrawlerVehicle / drive.ts keep using the chassis-ray path only.
+ * A kit rig drives through the axle patch. Legacy JSON still uses the chassis-ray path.
  */
 export function loadRig(raw: RawRigJson): RigDef {
   if (raw.kit) {

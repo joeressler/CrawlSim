@@ -11,14 +11,16 @@ import {
   hubWorldPosition,
   type KitSuspensionRuntime,
 } from "./kitBodies.ts";
-import { applyCoilovers, buildCoilovers, type CoiloverRuntime } from "./kitCoilovers.ts";
+import { applyCoilovers, buildCoilovers, dampAxleHeave, type CoiloverRuntime } from "./kitCoilovers.ts";
 import {
   applyHubDrive,
   createHubDriveState,
   resetHubDriveState,
   type HubDriveState,
+  type TireContactSnapshot,
 } from "./kitHubDrive.ts";
-import { applyHardFoldStop } from "./kitFoldStop.ts";
+import { applyHardFoldStop, holdAxleStation } from "./kitFoldStop.ts";
+import { applyDistanceLinks } from "./kitDistanceLinks.ts";
 import { buildKitLocate, type KitLocateRuntime } from "./kitLocate.ts";
 import { kitDiagFlags } from "./kitDiagFlags.ts";
 import type { KitWheelDef, RigDef } from "./types.ts";
@@ -41,6 +43,8 @@ const shockFrom = new THREE.Vector3();
 const shockTo = new THREE.Vector3();
 const shockScratch = new THREE.Vector3();
 const shockQ = new THREE.Quaternion();
+const squashNormal = new THREE.Vector3();
+const squashQuat = new THREE.Quaternion();
 
 export class CrawlerVehicle {
   readonly chassisMesh: THREE.Object3D;
@@ -121,8 +125,7 @@ export class CrawlerVehicle {
       return;
     }
     if (this.kit) {
-      // DOF ownership: shock-axis coilovers → hub Coulomb → Rapier step.
-      // Axle locate = spherical joints only; hang/soft WB/yaw teleports stay off hot path.
+      // Forces first, then distance links project axle locate before Rapier integrates.
       if (!kitDiagFlags.skipCoilovers) {
         applyCoilovers(this.chassisBody, this.kit.axles, this.coilovers, dt);
       }
@@ -136,16 +139,17 @@ export class CrawlerVehicle {
         applyHubDrive(world, this.chassisBody, this.kit.axles, hubWheels, this.rig, input, this.hubDriveState, dt);
         for (const wheel of this.wheels) {
           if (!wheel.kitWheel) continue;
+          const snap = this.hubDriveState.contacts.find((c) => c.id === wheel.kitWheel!.id);
           if (wheel.sim.steered) {
             wheel.sim.steer = this.hubDriveState.steer * this.rig.suspension.steerAngle;
           }
-          if (wheel.sim.driven && input.throttle !== 0) {
-            wheel.sim.spin += (input.throttle * this.rig.maxSpeed * dt) / wheel.sim.radius;
-          }
+          if (snap) wheel.sim.spin += snap.omega * dt;
         }
       }
-      // After drive: bumper must see post-thrust state (pre-drive order lost to tumble).
       applyHardFoldStop(this.chassisBody, this.kit.axles, dt);
+      applyDistanceLinks(this.chassisBody, this.kit.axles, this.kit.links, dt);
+      holdAxleStation(this.chassisBody, this.kit.axles, dt);
+      dampAxleHeave(this.chassisBody, this.kit.axles, dt);
       return;
     }
     applyDrive(world, this.chassisBody, this.sims, this.rig, input, this.driveState, dt);
@@ -180,6 +184,7 @@ export class CrawlerVehicle {
         mesh.rotateY(sim.steer);
         mesh.rotateZ(Math.PI / 2);
         mesh.rotateY(sim.spin);
+        this.squashTire(mesh, kitWheel.radius, this.contactFor(kitWheel.id));
         continue;
       }
       localOffset.set(sim.offset.x, sim.offset.y, sim.offset.z).applyQuaternion(this.chassisMesh.quaternion);
@@ -191,7 +196,36 @@ export class CrawlerVehicle {
       mesh.rotateY(sim.steer);
       mesh.rotateZ(Math.PI / 2);
       mesh.rotateY(sim.spin);
+      mesh.scale.set(1, 1, 1);
     }
+  }
+
+  tireContacts(): readonly TireContactSnapshot[] {
+    return this.hubDriveState.contacts;
+  }
+
+  private contactFor(id: string): TireContactSnapshot | undefined {
+    return this.hubDriveState.contacts.find((c) => c.id === id);
+  }
+
+  /** Oval the tread along the patch normal. Same deflection the solver used. */
+  private squashTire(mesh: THREE.Mesh, radius: number, snap: TireContactSnapshot | undefined): void {
+    if (!snap || snap.deflection < 1e-4 || !(radius > 0)) {
+      mesh.scale.set(1, 1, 1);
+      return;
+    }
+    const squash = Math.max(0.62, 1 - snap.deflection / radius);
+    squashNormal.set(-snap.nx, -snap.ny, -snap.nz);
+    squashQuat.copy(mesh.quaternion).invert();
+    squashNormal.applyQuaternion(squashQuat);
+    const ax = Math.abs(squashNormal.x);
+    const az = Math.abs(squashNormal.z);
+    if (ax < 0.2 && az < 0.2) {
+      mesh.scale.set(squash, 1, squash);
+      return;
+    }
+    if (ax >= az) mesh.scale.set(squash, 1, 1);
+    else mesh.scale.set(1, 1, squash);
   }
 
   private syncShockMeshes(): void {

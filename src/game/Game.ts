@@ -7,7 +7,7 @@ import { GameRenderer } from "../render/Renderer.ts";
 import { Hud } from "../ui/Hud.ts";
 import { CrawlerVehicle } from "../vehicles/CrawlerVehicle.ts";
 import { TrailScene } from "../world/TrailScene.ts";
-import { clampDt } from "./Time.ts";
+import { clampDt, FIXED_DT, MAX_SUBSTEPS } from "./Time.ts";
 
 export class Game {
   private readonly physics: PhysicsWorld;
@@ -18,6 +18,7 @@ export class Game {
   private readonly renderer: GameRenderer;
   private readonly clock = new THREE.Clock();
   private paused = false;
+  private accumulator = 0;
 
   constructor(host: HTMLElement) {
     const rig = loadStockRig();
@@ -37,15 +38,24 @@ export class Game {
 
   start(): void {
     const loop = (): void => {
-      const dt = clampDt(this.clock.getDelta());
+      const frameDt = clampDt(this.clock.getDelta());
       if (!this.paused) {
         const driveInput = this.input.poll();
         if (driveInput.reset) {
           this.reset();
-        } else {
-          this.vehicle.preStep(this.physics.world, driveInput, dt);
+          this.accumulator = 0;
         }
-        this.physics.step(dt);
+        this.accumulator += frameDt;
+        let steps = 0;
+        while (this.accumulator >= FIXED_DT * 0.5 && steps < MAX_SUBSTEPS) {
+          if (!driveInput.reset) {
+            this.vehicle.preStep(this.physics.world, driveInput, FIXED_DT);
+          }
+          this.physics.step(FIXED_DT);
+          this.accumulator -= FIXED_DT;
+          steps += 1;
+        }
+        if (steps === MAX_SUBSTEPS) this.accumulator = 0;
         this.vehicle.syncMeshes();
         this.cameraRig.follow(this.vehicle.chassisPosition());
       }

@@ -1,7 +1,8 @@
 /**
- * Strategy B Phase 3: dynamic axle bodies + spherical link kit + soft hub plant spheres.
- * Gravity restored on kit parts. Vertical plant = hub spheres only (no chassis-ray spring).
- * Coilovers / hub drive live in kitCoilovers.ts + kitHubDrive.ts.
+ * Solid axles for the kit rig.
+ * Locate is a distance constraint per link (kitDistanceLinks.ts), not a featherweight body.
+ * Hub spheres are the collapsed tire core only; the soft patch in tirePatch.ts is the plant.
+ * Coilovers / locked-axle drive live in kitCoilovers.ts + kitHubDrive.ts.
  */
 import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
@@ -13,8 +14,6 @@ import type { AxleDef, KitDef, KitWheelDef, LinkDef, MountDef, MountRef, Vec3 } 
 // Thin tube proxy: keep rest gap vs chassis cuboid so contact is crumple-only.
 const AXLE_HALF = { x: 0.105, y: 0.009, z: 0.009 };
 const AXLE_MASS = 0.4;
-const LINK_MASS = 0.05;
-const LINK_RADIUS = 0.01;
 
 export type KitAxleRuntime = {
   id: string;
@@ -26,14 +25,11 @@ export type KitAxleRuntime = {
 
 export type KitLinkRuntime = {
   id: string;
-  body: RAPIER.RigidBody;
   mesh: THREE.Object3D;
   def: LinkDef;
   length: number;
   from: { bodyKey: string; local: Vec3 };
   to: { bodyKey: string; local: Vec3 };
-  jointFrom?: RAPIER.ImpulseJoint;
-  jointTo?: RAPIER.ImpulseJoint;
 };
 
 export type KitSuspensionRuntime = {
@@ -191,8 +187,8 @@ export function buildKitSuspension(
         .setRotation(identityQuat())
         .setCanSleep(false)
         .setCcdEnabled(true)
-        .setLinearDamping(0.8)
-        .setAngularDamping(0.92)
+        .setLinearDamping(0.35)
+        .setAngularDamping(1.4)
     );
     createKitCollider(
       world,
@@ -207,13 +203,14 @@ export function buildKitSuspension(
     bodyByKey.set(def.id, body);
   }
 
-  // Soft hub plant spheres (ONE vertical plant — not stacked with chassis-ray spring).
+  // Deep bump stop only. A core at the full squash radius still launches off lips.
+  const coreScale = (1 - kit.tire.maxDeflection) * 0.55;
   for (const wheel of kit.wheels) {
     const axle = axles.get(wheel.axle);
     if (!axle) throw new Error(`hub sphere: unknown axle ${wheel.axle}`);
-    // Friction 0: Rapier contact is normal-only; Coulomb in kitHubDrive owns grip.
+    const core = Math.max(0.015, wheel.radius * coreScale);
     world.createCollider(
-      RAPIER.ColliderDesc.ball(wheel.radius)
+      RAPIER.ColliderDesc.ball(core)
         .setTranslation(wheel.hubOffset.x, wheel.hubOffset.y, wheel.hubOffset.z)
         .setDensity(0)
         .setFriction(0)
@@ -228,10 +225,12 @@ export function buildKitSuspension(
   // Stock I_xx ~2e-5 lets coils+drive tumble the axle (foldDiag A ~step 15).
   for (const axle of axles.values()) {
     axle.body.recomputeMassPropertiesFromColliders();
+    // Extra inertia so link corrections cannot spin a featherweight housing.
+    // X resists axle wrap; Y/Z keep yaw and articulation from exploding.
     axle.body.setAdditionalMassProperties(
       0,
       { x: 0, y: 0, z: 0 },
-      { x: 0.025, y: 0, z: 0 },
+      { x: 0.025, y: 0.012, z: 0.012 },
       identityQuat(),
       true
     );
@@ -240,54 +239,21 @@ export function buildKitSuspension(
   for (const linkDef of kit.links) {
     const from = resolveLocal(linkDef.from, kit, axleDefs, `link ${linkDef.id} from`);
     const to = resolveLocal(linkDef.to, kit, axleDefs, `link ${linkDef.id} to`);
-    const fromBody = bodyByKey.get(from.bodyKey);
-    const toBody = bodyByKey.get(to.bodyKey);
-    if (!fromBody || !toBody) throw new Error(`link ${linkDef.id}: missing body`);
-
     const fromWorld = worldFromChassis(chassis, chassisLocalForRef(from, axleDefs));
     const toWorld = worldFromChassis(chassis, chassisLocalForRef(to, axleDefs));
     const center = mid(fromWorld, toWorld);
-    const length = Math.max(len(sub(toWorld, fromWorld)), 0.05);
-
-    const body = world.createRigidBody(
-      RAPIER.RigidBodyDesc.dynamic()
-        .setTranslation(center.x, center.y, center.z)
-        .setRotation(identityQuat())
-        .setCanSleep(false)
-        .setLinearDamping(0.3)
-        .setAngularDamping(0.6)
-    );
-    createKitCollider(world, body, RAPIER.ColliderDesc.ball(LINK_RADIUS).setMass(LINK_MASS));
-
-    const anchorLinkFrom = sub(fromWorld, center);
-    const anchorLinkTo = sub(toWorld, center);
-    const jointFrom = world.createImpulseJoint(
-      RAPIER.JointData.spherical(from.local, anchorLinkFrom),
-      fromBody,
-      body,
-      true
-    );
-    const jointTo = world.createImpulseJoint(
-      RAPIER.JointData.spherical(anchorLinkTo, to.local),
-      body,
-      toBody,
-      true
-    );
-
+    const length = Math.max(len(sub(toWorld, fromWorld)), 0.02);
     const mesh = buildScxLinkVisual(length, linkDef.kind === "panhard");
     mesh.position.set(center.x, center.y, center.z);
     mesh.quaternion.copy(meshLookRotation(fromWorld, toWorld));
     scene.add(mesh);
     links.push({
       id: linkDef.id,
-      body,
       mesh,
       def: linkDef,
       length,
       from: { bodyKey: from.bodyKey, local: from.local },
       to: { bodyKey: to.bodyKey, local: to.local },
-      jointFrom,
-      jointTo,
     });
   }
 
@@ -308,12 +274,9 @@ export function buildKitSuspension(
       const fromWorld = worldFromChassis(chassisBody, chassisLocalForRef(from, axleDefs));
       const toWorld = worldFromChassis(chassisBody, chassisLocalForRef(to, axleDefs));
       const center = mid(fromWorld, toWorld);
-      link.body.setTranslation(center, true);
-      link.body.setRotation(rot, true);
-      link.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
-      link.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
       link.mesh.position.set(center.x, center.y, center.z);
       link.mesh.quaternion.copy(meshLookRotation(fromWorld, toWorld));
+      link.mesh.scale.set(1, 1, 1);
     }
   };
 

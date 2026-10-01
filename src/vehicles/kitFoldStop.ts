@@ -129,3 +129,36 @@ export function applyHardFoldStop(
     }
   }
 }
+
+/**
+ * Soft fore-aft station spring. Distance rods allow the housing to walk rearward
+ * under throttle; this holds chassis-local Z near the rest pose.
+ */
+export function holdAxleStation(
+  chassis: RAPIER.RigidBody,
+  axles: Map<string, KitAxleRuntime>,
+  dt: number
+): void {
+  if (!(dt > 0)) return;
+  const cr = chassis.rotation();
+  scratchQ.set(cr.x, cr.y, cr.z, cr.w);
+  scratchInv.copy(scratchQ).invert();
+  scratchFwd.set(0, 0, 1).applyQuaternion(scratchQ);
+  const ct = chassis.translation();
+  for (const axle of axles.values()) {
+    const at = axle.body.translation();
+    scratchLocal.set(at.x - ct.x, at.y - ct.y, at.z - ct.z).applyQuaternion(scratchInv);
+    const err = scratchLocal.z - axle.restLocal.z;
+    if (Math.abs(err) < 0.018) continue;
+    const force = clamp(-err * 1600, -180, 180);
+    const j = force * dt;
+    axle.body.applyImpulse(
+      { x: scratchFwd.x * j, y: scratchFwd.y * j, z: scratchFwd.z * j },
+      true
+    );
+    chassis.applyImpulse(
+      { x: -scratchFwd.x * j * 0.4, y: -scratchFwd.y * j * 0.4, z: -scratchFwd.z * j * 0.4 },
+      true
+    );
+  }
+}

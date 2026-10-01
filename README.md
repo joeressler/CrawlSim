@@ -15,7 +15,20 @@ RC rock-crawler vertical slice: box chassis, four wheels, ground + ramp, WASD dr
 - **A / D** or arrows â€” steer the front tires
 - **R** â€” reset pose and velocities from the rig spawn
 
-The ramp is straight ahead of spawn. A box ledge sits off to the right; further right is a short rock course (crawl toward −Z). Stairs are on the left.
+The ramp is straight ahead of spawn. A box ledge sits off to the right; further right is a short rock course (crawl toward −Z). Stairs are on the left. A low lip for slow-climb checks sits at x = 10.
+
+## How the crawler is simulated
+
+Physics steps at a fixed 1/120 s (at most four steps per frame). The stock rig is a solid-axle kit:
+
+- Each axle is a rigid body. Four links and a panhard are distance constraints (no featherweight link bodies).
+- Coilovers set ride height. Rates come from `kit.shocks` in [`src/data/rigs/stock.json`](src/data/rigs/stock.json).
+- Tires are a fan of radial springs on the axle (`kit.tire`: `radialK`, `radialC`, `reboundC`, `maxDeflection`, `deflectionFilter`). The visible cylinder squashes with that deflection. A small hub sphere is only the fully collapsed stop.
+- Drive is a locked spool: one spin speed per axle, torque capped by `kit.drive`, longitudinal and lateral forces shared by the chassis and the axle so the rods are not asked to ferry the whole force. Planted slip is driven toward zero.
+
+Changing `stock.json` changes size and handling without rewriting the loop. Rigs without `kit` still use the legacy chassis-ray path in `drive.ts`.
+
+Next tire/drive upgrades, not in this slice: a node-ring carcass, an open diff, and portal gears.
 
 ## Adding a rig
 
@@ -42,6 +55,7 @@ Top-level: `parts`, `spawn`, `maxSpeed`, `cameraOffset`, `kit`.
 | `kit.shocks[]` | Coilovers: `from` / `to` mounts plus `restLength`, `springK`, `damperC`, `maxTravel` |
 | `kit.wheels[]` | Hubs on an axle: `axle`, `hubOffset` (axle-local), `radius`, `width`, `driven`, `steered` |
 | `kit.drive` | Shared grip / motor caps: `mu`, `driveTorque`, `maxForce`, `steerAngle`, `maxAccel`, `minNormalY`, `minUpright` |
+| `kit.tire` | Soft carcass: `radialK`, `radialC`, `reboundC`, `maxDeflection` (fraction of radius), `deflectionFilter` (seconds) |
 
 Phase 1 was data + validation only. **Phase 2a** added Strategy B articulation (axles + spherical links). **Phase 3** (SCX10.1-scale, 313 mm WB): equal-length parallel 4-link + panhard locate each axle; soft hub spheres are the only ground plant; vertical coilovers support ride height; hub drive restores throttle/steer. No chassis-ray spring (no double plant). **Phase 4**: Coulomb/ray grip retargeted to axle hubs (Fn estimate only; spheres plant; reverse steer yaw). WASD + reverse. No multipart chassis visual. **Phase 5**: procedural multipart SCX10.1 visuals (C-channel rails, shock hoops, skid, radio box, battery tray, bumpers; axle/link/shock primitives). Rapier proxies unchanged. **Phase 6**: suspension stability — lower chassis COM, gentler hub accel, crawl upright floors raised. Soft kit locate assist: WB spring F/R, axle yaw limits, skid transfer+shaft visuals with lateral-only stiffeners (no lock joints). Climb: hub long Coulomb along contact tangent + front lip face probe; kit reset copies chassis quat to axles. Bump/accel crumple: chassis↔axle collision pads (rest gap, CCD) + shock-axis bump packer — no COM hang-floor impulses (those fought links and made throttle axle-drag worse). Pitch restore signed by nose attitude. Stairs ~1–2.5 tire diameters. Strategy B / one plant / SCX10.1 unchanged.
 
@@ -69,7 +83,7 @@ Per wheel (legacy): `offset` (hardpoint on the chassis), `radius`, `width`, `dri
 
 `PartIds` on `RigDef` (`chassis`, `tires`, `motor`, `battery`, optional `axles` / `links` / `shocks`) are string ids only in this slice. A garage can swap those ids and rebuild `CrawlerVehicle` from a new `RigDef` without rewriting `Game`.
 
-Crawl forces live in [`src/vehicles/drive.ts`](src/vehicles/drive.ts): one suspension ray and a friction clamp per tire. Kit mounts/links/shocks are the BOM for later axle bodies and joints; the chassis-ray path is still what drives today.
+Stock crawl forces live in [`src/vehicles/kitHubDrive.ts`](src/vehicles/kitHubDrive.ts) and [`src/vehicles/tirePatch.ts`](src/vehicles/tirePatch.ts). [`src/vehicles/drive.ts`](src/vehicles/drive.ts) is the legacy chassis-ray path for rigs with no `kit`.
 ## Headless tests (no browser)
 
 Autonomous crawler gates for CI / unattended runs. Fixed dt = 1/60, scripted WASD-equivalent input.
@@ -93,6 +107,9 @@ Autonomous crawler gates for CI / unattended runs. Fixed dt = 1/60, scripted WAS
 | Stairs climbY + hang | climbY >= 0.12 m, minHang >= 8 mm |
 | Throttle hang (F+R) | minHang >= 8 mm while driving |
 | Ledge peak +X or maxY | >= 0.25 m or >= 0.12 m (crest attempt) |
+| Idle vertical jitter | chassis \|vy\| <= 0.35 and frame-to-frame \|Δvy\| <= 0.25 |
+| Flat slip | planted hub slip <= 0.15 m/s while creeping |
+| Lip creep | height gain on the x=10 lip, no stuck stop, peak \|vy\| <= 0.9 |
 
 Shared harness: `scripts/crawlHarness.ts`.
 
