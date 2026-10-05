@@ -11,6 +11,7 @@ const MAT = {
   skid: new THREE.MeshStandardMaterial({ color: 0x1a1c1f, metalness: 0.35, roughness: 0.55 }),
   plastic: new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.05, roughness: 0.85 }),
   tray: new THREE.MeshStandardMaterial({ color: 0x22262c, metalness: 0.25, roughness: 0.6 }),
+  servo: new THREE.MeshStandardMaterial({ color: 0xd14f3f, metalness: 0.28, roughness: 0.62 }),
   bumper: new THREE.MeshStandardMaterial({ color: 0x4a4e55, metalness: 0.5, roughness: 0.4 }),
   accent: new THREE.MeshStandardMaterial({ color: 0x5c6b7a, metalness: 0.3, roughness: 0.55 }),
   axle: new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.6, roughness: 0.4 }),
@@ -198,6 +199,9 @@ export function buildScxChassisVisual(halfExtents: Vec3, kit: KitDef | null): TH
   root.add(buildWebbedSkid(railX, length));
   root.add(buildRadioBox());
   root.add(buildBatteryTray());
+  const servo = box(0.032, 0.021, 0.046, MAT.servo, 0.022, 0.01, -0.02);
+  servo.name = "steering_servo";
+  root.add(servo);
   root.add(buildBumperPlate(-1, length));
   root.add(buildBumperPlate(1, length));
 

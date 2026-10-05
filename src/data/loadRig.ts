@@ -155,10 +155,15 @@ function wheelsFromKit(kit: KitDef, axles: Map<string, AxleDef>): WheelDef[] {
  * A kit rig drives through the axle patch. Legacy JSON still uses the chassis-ray path.
  */
 export function loadRig(raw: RawRigJson): RigDef {
+  const parts = {
+    ...raw.parts,
+    servo: raw.parts.servo ?? raw.parts.battery ?? "stock-servo",
+  };
+
   if (raw.kit) {
     const axles = validateKit(raw.kit);
     return {
-      parts: raw.parts,
+      parts,
       initialSceneId: raw.initialSceneId,
       kit: raw.kit,
       chassis: {
@@ -177,7 +182,7 @@ export function loadRig(raw: RawRigJson): RigDef {
     throw new Error("rig JSON needs either kit or legacy chassis + wheels + suspension");
   }
   return {
-    parts: raw.parts,
+    parts,
     initialSceneId: raw.initialSceneId,
     chassis: raw.chassis,
     spawn: raw.spawn,

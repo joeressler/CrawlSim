@@ -4,6 +4,7 @@
     "tires": "scx101-1.9",
     "motor": "stock-crawl",
     "battery": "unmodeled",
+    "servo": "stock-servo",
     "axles": "scx101-solid",
     "links": "scx101-4link",
     "shocks": "scx101-coil"

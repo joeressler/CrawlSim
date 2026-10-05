@@ -52,6 +52,66 @@ canvas {
   font-size: 14px;
 }
 
+.garage-config {
+  position: fixed;
+  right: 12px;
+  top: 12px;
+  width: 280px;
+  z-index: 22;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.65);
+  border-radius: 10px;
+  background: rgba(12, 19, 31, 0.86);
+  color: #f8fafc;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.garage-config__title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.garage-config__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.garage-config__field-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #cdd9ea;
+}
+
+.garage-config__summary {
+  margin-top: -4px;
+  margin-bottom: 10px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #d6e1f5;
+}
+
+.garage-config__input,
+.garage-config__color {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 8px;
+  border: 1px solid #76859d;
+  background: rgba(16, 26, 42, 0.95);
+  color: #f8fafc;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.garage-config__color {
+  height: 34px;
+  padding: 2px;
+}
+
 @media (max-width: 640px) {
   .scene-menu {
     left: 8px;
@@ -62,5 +122,15 @@ canvas {
   .scene-menu__select {
     min-width: 0;
     width: 100%;
+  }
+
+  .garage-config {
+    top: auto;
+    right: 8px;
+    left: 8px;
+    bottom: 52px;
+    width: auto;
+    max-height: 48vh;
+    overflow: auto;
   }
 }

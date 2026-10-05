@@ -312,8 +312,13 @@ export function applyHubDrive(
 
   const drive = kit.drive;
   const tire = kit.tire;
-  const blend = 1 - Math.exp(-dt / 0.08);
-  state.steer += (input.steer - state.steer) * blend;
+  if (drive.steerRate && drive.steerRate > 0) {
+    const steerStep = drive.steerRate * dt;
+    state.steer += clamp(input.steer - state.steer, -steerStep, steerStep);
+  } else {
+    const blend = 1 - Math.exp(-dt / 0.08);
+    state.steer += (input.steer - state.steer) * blend;
+  }
   if (input.steer === 0 && Math.abs(state.steer) < 0.02) state.steer = 0;
 
   // Keep the turn assist subtle: reduce straight-line momentum only a little so the

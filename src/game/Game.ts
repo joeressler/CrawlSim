@@ -1,9 +1,16 @@
 import * as THREE from "three";
 import { loadStockRig } from "../data/loadRig.ts";
+import {
+  applyGarageConfigToRig,
+  loadGarageConfig,
+  saveGarageConfig,
+  type GarageConfig,
+} from "../garage/catalog.ts";
 import { Input } from "../input/Input.ts";
 import { PhysicsWorld } from "../physics/PhysicsWorld.ts";
 import { CameraRig } from "../render/CameraRig.ts";
 import { GameRenderer } from "../render/Renderer.ts";
+import { GarageConfigurator } from "../ui/GarageConfigurator.ts";
 import { Hud } from "../ui/Hud.ts";
 import { SceneMenu } from "../ui/SceneMenu.ts";
 import { CrawlerVehicle } from "../vehicles/CrawlerVehicle.ts";
@@ -22,7 +29,9 @@ const TRAIL_CAMERA_FOV = 60;
 const GARAGE_DISPLAY_YAW = Math.PI / 2;
 
 export class Game {
-  private readonly rig: RigDef;
+  private readonly baseRig: RigDef;
+  private activeRig: RigDef;
+  private garageConfig: GarageConfig;
   private readonly physics: PhysicsWorld;
   private sceneId: SceneId;
   private activeScene: WorldScene;
@@ -31,27 +40,40 @@ export class Game {
   private readonly cameraRig: CameraRig;
   private readonly renderer: GameRenderer;
   private readonly sceneMenu: SceneMenu;
+  private readonly garageUi: GarageConfigurator;
   private readonly clock = new THREE.Clock();
   private paused = false;
   private accumulator = 0;
 
   constructor(host: HTMLElement) {
-    this.rig = loadStockRig();
+    this.baseRig = loadStockRig();
+    this.garageConfig = loadGarageConfig();
+    this.activeRig = applyGarageConfigToRig(this.baseRig, this.garageConfig);
     this.physics = PhysicsWorld.create();
-    this.sceneId = parseSceneId(this.rig.initialSceneId);
-    this.activeScene = createWorldScene(this.sceneId, this.rig.spawn);
+    this.sceneId = parseSceneId(this.baseRig.initialSceneId);
+    this.activeScene = createWorldScene(this.sceneId, this.baseRig.spawn);
     this.activeScene.activate(this.sceneContext());
     this.vehicle = this.createVehicleForScene(this.activeScene);
     this.applyGarageDisplayPose();
     this.vehicle.setLockedInPlace(this.sceneId === "garage");
+    this.vehicle.applyGarageColors(this.garageConfig.linkColor, this.garageConfig.servoColor);
     this.input = new Input();
-    this.cameraRig = new CameraRig(this.rig.cameraOffset);
+    this.cameraRig = new CameraRig(this.baseRig.cameraOffset);
     this.applyCameraPreset(this.sceneId);
     this.renderer = new GameRenderer(host);
     new Hud(host);
     this.sceneMenu = new SceneMenu(host, this.sceneId, (nextSceneId) => {
       this.switchToScene(nextSceneId);
     });
+    this.garageUi = new GarageConfigurator(host, this.garageConfig, {
+      onChange: (nextConfig) => {
+        this.garageConfig = nextConfig;
+        saveGarageConfig(this.garageConfig);
+        this.activeRig = applyGarageConfigToRig(this.baseRig, this.garageConfig);
+        this.rebuildVehicleInActiveScene();
+      },
+    });
+    this.garageUi.setVisible(this.sceneId === "garage");
 
     this.cameraRig.follow(this.vehicle.chassisPosition());
 
@@ -69,13 +91,15 @@ export class Game {
     this.activeScene.deactivate(ctx);
     this.activeScene.dispose(ctx);
     this.sceneId = sceneId;
-    this.activeScene = createWorldScene(sceneId, this.rig.spawn);
+    this.activeScene = createWorldScene(sceneId, this.baseRig.spawn);
     this.activeScene.activate(ctx);
     this.vehicle = this.createVehicleForScene(this.activeScene);
     this.applyGarageDisplayPose();
     this.vehicle.setLockedInPlace(this.sceneId === "garage");
+    this.vehicle.applyGarageColors(this.garageConfig.linkColor, this.garageConfig.servoColor);
     this.applyCameraPreset(this.sceneId);
     this.sceneMenu.setScene(this.sceneId);
+    this.garageUi.setVisible(this.sceneId === "garage");
     this.vehicle.syncMeshes();
     this.cameraRig.follow(this.vehicle.chassisPosition());
     this.accumulator = 0;
@@ -121,13 +145,13 @@ export class Game {
   private sceneContext() {
     return {
       physics: this.physics,
-      defaultSpawn: this.rig.spawn,
+      defaultSpawn: this.baseRig.spawn,
     };
   }
 
   private createVehicleForScene(scene: WorldScene): CrawlerVehicle {
     const rigForScene: RigDef = {
-      ...this.rig,
+      ...this.activeRig,
       spawn: { ...scene.spawn },
     };
     return new CrawlerVehicle(this.physics, scene.scene, rigForScene);
@@ -139,7 +163,7 @@ export class Game {
       this.cameraRig.setFov(GARAGE_CAMERA_FOV);
       return;
     }
-    this.cameraRig.setOffset(this.rig.cameraOffset);
+    this.cameraRig.setOffset(this.baseRig.cameraOffset);
     this.cameraRig.setFov(TRAIL_CAMERA_FOV);
   }
 
@@ -153,5 +177,17 @@ export class Game {
     this.vehicle.chassisBody.setAngvel({ x: 0, y: 0, z: 0 }, true);
     this.vehicle.kitSuspension()?.reset(this.vehicle.chassisBody);
     this.vehicle.syncMeshes();
+  }
+
+  private rebuildVehicleInActiveScene(): void {
+    const scene = this.activeScene.scene;
+    this.vehicle.dispose(this.physics.world, scene);
+    this.vehicle = this.createVehicleForScene(this.activeScene);
+    this.applyGarageDisplayPose();
+    this.vehicle.setLockedInPlace(this.sceneId === "garage");
+    this.vehicle.applyGarageColors(this.garageConfig.linkColor, this.garageConfig.servoColor);
+    this.vehicle.syncMeshes();
+    this.cameraRig.follow(this.vehicle.chassisPosition());
+    this.accumulator = 0;
   }
 }

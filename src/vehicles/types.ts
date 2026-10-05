@@ -39,12 +39,13 @@ export type WheelDef = {
   mu?: number;
 };
 
-/** Placeholder ids for later swappable chassis / tires / motor / battery / axles. */
+/** Placeholder ids for later swappable chassis / tires / motor / battery / servo / axles. */
 export type PartIds = {
   chassis: string;
   tires: string;
   motor: string;
   battery: string;
+  servo?: string;
   axles?: string;
   links?: string;
   shocks?: string;
@@ -148,6 +149,8 @@ export type DriveDef = {
   driveTorque: number;
   maxForce: number;
   steerAngle: number;
+  /** Max steer change rate in normalized steer units per second. */
+  steerRate?: number;
   maxAccel: number;
   minNormalY: number;
   minUpright: number;
