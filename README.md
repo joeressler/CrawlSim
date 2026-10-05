@@ -14,8 +14,39 @@ RC rock-crawler vertical slice: box chassis, four wheels, ground + ramp, WASD dr
 - **W / S** or arrows â€” throttle
 - **A / D** or arrows â€” steer the front tires
 - **R** â€” reset pose and velocities from the rig spawn
+- **Scene dropdown (top-left)** â€” switch between `trail-classic`, `trail-technical`, and `garage`
+
+When `garage` is active in this pass, throttle/steer inputs are intentionally disabled while reset remains available.
 
 The ramp is straight ahead of spawn. A box ledge sits off to the right; further right is a short rock course (crawl toward −Z). Stairs are on the left. A low lip for slow-climb checks sits at x = 10.
+
+## Scene system
+
+Runtime scene switching is now handled by a world scene contract and a small factory.
+
+- Scene contract: `id`, `scene`, `spawn`, `activate`, `deactivate`, `dispose`
+- Scene ids: `trail-classic`, `trail-technical`, `garage`
+- Active scene spawn is authoritative for vehicle reset/rebuild
+- Rig JSON may set `initialSceneId`; stock defaults to `trail-classic`
+
+Current scenes in this pass:
+
+- `trail-classic`: the original obstacle course and tuning baseline
+- `trail-technical`: alternate trail layout for scene-switch smoke and future variants
+- `garage`: display bay scene with workshop props and a dedicated spotlight on the RC for presentation and future rig/parts workflows
+
+Out of scope in this pass:
+
+- Garage UI
+- Component swap flow
+- Data-driven trail authoring
+
+How to add a new trail scene:
+
+1. Create a `WorldScene` implementation under `src/world/`.
+2. Register it in `src/world/sceneFactory.ts` with a new scene id.
+3. Add controls/UI hook to call `Game.switchToScene(newId)`.
+4. Keep headless scripts pinned to `trail-classic` unless intentionally updating test baselines.
 
 ## How the crawler is simulated
 

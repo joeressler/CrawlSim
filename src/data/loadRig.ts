@@ -159,6 +159,7 @@ export function loadRig(raw: RawRigJson): RigDef {
     const axles = validateKit(raw.kit);
     return {
       parts: raw.parts,
+      initialSceneId: raw.initialSceneId,
       kit: raw.kit,
       chassis: {
         halfExtents: raw.kit.chassis.halfExtents,
@@ -177,6 +178,7 @@ export function loadRig(raw: RawRigJson): RigDef {
   }
   return {
     parts: raw.parts,
+    initialSceneId: raw.initialSceneId,
     chassis: raw.chassis,
     spawn: raw.spawn,
     wheels: raw.wheels,

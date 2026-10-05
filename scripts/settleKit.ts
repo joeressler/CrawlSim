@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { loadStockRig } from "../src/data/loadRig.ts";
 import { PhysicsWorld } from "../src/physics/PhysicsWorld.ts";
 import { CrawlerVehicle } from "../src/vehicles/CrawlerVehicle.ts";
-import { TrailScene } from "../src/world/TrailScene.ts";
+import { createWorldScene } from "../src/world/sceneFactory.ts";
 import { forEachSubstep } from "../src/game/Time.ts";
 
 /**
@@ -34,7 +34,8 @@ export async function runIdleSettle(seconds = 5, dt = 1 / 60): Promise<SettleMet
   const physics = PhysicsWorld.create();
   physics.world.integrationParameters.numSolverIterations = 28;
   physics.world.integrationParameters.normalizedAllowedLinearError = 0.0005;
-  const trail = new TrailScene(physics, rig.spawn);
+  const trail = createWorldScene("trail-classic", rig.spawn);
+  trail.activate({ physics, defaultSpawn: rig.spawn });
   const vehicle = new CrawlerVehicle(physics, trail.scene, rig);
   const tick = (throttle: number, steer: number): void => {
     forEachSubstep(dt, (stepDt) => {

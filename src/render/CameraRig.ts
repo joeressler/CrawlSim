@@ -21,6 +21,16 @@ export class CameraRig {
     this.camera.lookAt(target.x, target.y, target.z);
   }
 
+  setOffset(offset: Vec3): void {
+    this.offset.set(offset.x, offset.y, offset.z);
+  }
+
+  setFov(fov: number): void {
+    if (Math.abs(this.camera.fov - fov) < 0.001) return;
+    this.camera.fov = fov;
+    this.camera.updateProjectionMatrix();
+  }
+
   onResize(): void {
     this.camera.aspect = innerWidth / innerHeight;
     this.camera.updateProjectionMatrix();

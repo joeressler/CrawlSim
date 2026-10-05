@@ -22,3 +22,45 @@ canvas {
   pointer-events: none;
   font-size: 14px;
 }
+
+.scene-menu {
+  position: fixed;
+  left: 12px;
+  top: 12px;
+  z-index: 20;
+  pointer-events: auto;
+}
+
+.scene-menu__label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #f2f5ff;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 2px #000;
+}
+
+.scene-menu__select {
+  min-width: 190px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #94a3b8;
+  background: rgba(15, 23, 42, 0.88);
+  color: #f8fafc;
+  font-size: 14px;
+}
+
+@media (max-width: 640px) {
+  .scene-menu {
+    left: 8px;
+    right: 8px;
+    top: 8px;
+  }
+
+  .scene-menu__select {
+    min-width: 0;
+    width: 100%;
+  }
+}

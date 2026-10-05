@@ -186,6 +186,35 @@ export function projectAxleStation(
 }
 
 /**
+ * Keep the front axle's chassis-local Z near rest even while steering.
+ * Full projectAxleStation is skipped under steer so the housing can yaw;
+ * without this the steer axle rubberbands fore-aft on every turn.
+ */
+export function projectFrontStation(
+  chassis: RAPIER.RigidBody,
+  axles: Map<string, KitAxleRuntime>
+): void {
+  const front = axles.get("front");
+  if (!front) return;
+  const cr = chassis.rotation();
+  scratchQ.set(cr.x, cr.y, cr.z, cr.w);
+  scratchInv.copy(scratchQ).invert();
+  const ct = chassis.translation();
+  const at = front.body.translation();
+  scratchLocal.set(at.x - ct.x, at.y - ct.y, at.z - ct.z).applyQuaternion(scratchInv);
+  const half = 0.0015;
+  const zLo = front.restLocal.z - half;
+  const zHi = front.restLocal.z + half;
+  if (scratchLocal.z >= zLo && scratchLocal.z <= zHi) return;
+  scratchLocal.z = clamp(scratchLocal.z, zLo, zHi);
+  scratchFwd.copy(scratchLocal).applyQuaternion(scratchQ);
+  front.body.setTranslation(
+    { x: ct.x + scratchFwd.x, y: ct.y + scratchFwd.y, z: ct.z + scratchFwd.z },
+    true
+  );
+}
+
+/**
  * Soft fore-aft station spring. Distance rods allow the housing to walk rearward
  * under throttle; this holds chassis-local Z near the rest pose.
  */
@@ -204,7 +233,9 @@ export function holdAxleStation(
     const at = axle.body.translation();
     scratchLocal.set(at.x - ct.x, at.y - ct.y, at.z - ct.z).applyQuaternion(scratchInv);
     const err = scratchLocal.z - axle.restLocal.z;
-    if (Math.abs(err) < 0.018) continue;
+    // Front bites earlier — less free rubberband before the station spring holds.
+    const deadband = axle.id === "front" ? 0.012 : 0.018;
+    if (Math.abs(err) < deadband) continue;
     const force = clamp(-err * 1600, -180, 180);
     const j = force * dt;
     axle.body.applyImpulse(

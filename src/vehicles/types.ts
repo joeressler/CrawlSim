@@ -4,6 +4,8 @@ export type Vec3 = {
   z: number;
 };
 
+export type InitialSceneId = "trail-classic" | "trail-technical" | "garage";
+
 export type WheelId = "fl" | "fr" | "rl" | "rr";
 
 /** Local hardpoint on a kit part (chassis or axle). */
@@ -149,6 +151,24 @@ export type DriveDef = {
   maxAccel: number;
   minNormalY: number;
   minUpright: number;
+  /** Throttle deadband that arms idle drag-brake behavior. */
+  idleThrottleEps?: number;
+  /** Enter idle hold when |commandSpeed| drops below this (m/s). */
+  idleEnterSpeed?: number;
+  /** Exit idle hold when |commandSpeed| rises above this (m/s). */
+  idleExitSpeed?: number;
+  /** Enter idle hold only when planar chassis speed is below this (m/s). */
+  idlePlanarEnterSpeed?: number;
+  /** Exit idle hold when planar chassis speed rises above this (m/s). */
+  idlePlanarExitSpeed?: number;
+  /** Scale drive torque while idle hold is active. */
+  idleTorqueScale?: number;
+  /** Scale force caps while idle hold is active. */
+  idleForceScale?: number;
+  /** Scale friction coefficient while idle hold is active. */
+  idleMuScale?: number;
+  /** Scale accel budget while idle hold is active. */
+  idleAccelScale?: number;
 };
 
 /** Strategy B kit bill of materials. Axle bodies / joints / shock forces come in later phases. */
@@ -169,6 +189,7 @@ export type KitDef = {
  */
 export type RigDef = {
   parts: PartIds;
+  initialSceneId?: InitialSceneId;
   chassis: {
     halfExtents: Vec3;
     mass: number;
@@ -185,6 +206,7 @@ export type RigDef = {
 /** On-disk shape: either kit BOM, legacy chassis-ray fields, or both. */
 export type RawRigJson = {
   parts: PartIds;
+  initialSceneId?: InitialSceneId;
   spawn: Vec3;
   maxSpeed: number;
   cameraOffset: Vec3;

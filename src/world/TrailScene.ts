@@ -2,8 +2,8 @@ import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
 import { WORLD_GROUPS } from "../physics/collisionGroups.ts";
 import { addTrailLights } from "../render/lights.ts";
-import type { PhysicsWorld } from "../physics/PhysicsWorld.ts";
 import type { Vec3 } from "../vehicles/types.ts";
+import type { SceneContext, WorldScene } from "./WorldScene.ts";
 
 function worldCollider(desc: RAPIER.ColliderDesc): RAPIER.ColliderDesc {
   return desc.setCollisionGroups(WORLD_GROUPS).setSolverGroups(WORLD_GROUPS);
@@ -37,35 +37,63 @@ type FixedCuboidOpts = {
   fillet?: boolean;
 };
 
-export class TrailScene {
+export class TrailScene implements WorldScene {
+  readonly id = "trail-classic" as const;
   readonly scene: THREE.Scene;
   readonly spawn: Vec3;
+  private built = false;
+  private readonly worldBodies: RAPIER.RigidBody[] = [];
 
-  constructor(physics: PhysicsWorld, spawn: Vec3) {
+  constructor(spawn: Vec3) {
     this.spawn = spawn;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x87b5ff);
     addTrailLights(this.scene);
-    this.createGround(physics);
-    this.createRamp(physics);
-    this.createLedge(physics);
-    this.createObstacleCourse(physics);
-    this.createRockCourse(physics);
-    this.createCrawlLip(physics);
+  }
+
+  activate(ctx: SceneContext): void {
+    if (this.built) return;
+    this.createGround(ctx.physics.world);
+    this.createRamp(ctx.physics.world);
+    this.createLedge(ctx.physics.world);
+    this.createObstacleCourse(ctx.physics.world);
+    this.createRockCourse(ctx.physics.world);
+    this.createCrawlLip(ctx.physics.world);
+    this.built = true;
+  }
+
+  deactivate(_ctx: SceneContext): void {
+    // No per-frame subscriptions for this scene.
+  }
+
+  dispose(ctx: SceneContext): void {
+    for (const body of this.worldBodies) {
+      if (!body.isValid()) continue;
+      ctx.physics.world.removeRigidBody(body);
+    }
+    this.worldBodies.length = 0;
+    this.scene.clear();
+    addTrailLights(this.scene);
+    this.built = false;
+  }
+
+  private trackBody(body: RAPIER.RigidBody): RAPIER.RigidBody {
+    this.worldBodies.push(body);
+    return body;
   }
 
   /** Fixed world cuboid: collider + matching mesh. */
-  private addFixedCuboid(physics: PhysicsWorld, opts: FixedCuboidOpts): void {
+  private addFixedCuboid(world: RAPIER.World, opts: FixedCuboidOpts): void {
     const { half, pos, rot, friction, material, fillet } = opts;
     const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(pos.x, pos.y, pos.z);
     if (rot) {
       bodyDesc.setRotation({ x: rot.x, y: rot.y, z: rot.z, w: rot.w });
     }
-    const body = physics.world.createRigidBody(bodyDesc);
+    const body = this.trackBody(world.createRigidBody(bodyDesc));
     const shape = fillet
       ? filletedCuboid(half, friction)
       : RAPIER.ColliderDesc.cuboid(half.x, half.y, half.z).setFriction(friction).setRestitution(0);
-    physics.world.createCollider(worldCollider(shape), body);
+    world.createCollider(worldCollider(shape), body);
     const mesh = new THREE.Mesh(
       new THREE.BoxGeometry(half.x * 2, half.y * 2, half.z * 2),
       material
@@ -75,9 +103,9 @@ export class TrailScene {
     this.scene.add(mesh);
   }
 
-  private createGround(physics: PhysicsWorld): void {
-    const groundBody = physics.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
-    physics.world.createCollider(
+  private createGround(world: RAPIER.World): void {
+    const groundBody = this.trackBody(world.createRigidBody(RAPIER.RigidBodyDesc.fixed()));
+    world.createCollider(
       worldCollider(
         RAPIER.ColliderDesc.cuboid(20, 0.25, 20)
           .setTranslation(0, -0.25, 0)
@@ -94,19 +122,21 @@ export class TrailScene {
     this.scene.add(groundMesh);
   }
 
-  private createRamp(physics: PhysicsWorld): void {
+  private createRamp(world: RAPIER.World): void {
     const pitch = 0.28;
     const half = { x: 3, y: 0.15, z: 4 };
     const rotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, 0, 0));
     const nearTopY = half.y * Math.cos(pitch) - half.z * Math.sin(pitch);
     const rampY = 0.08 - nearTopY;
     const rampZ = -1;
-    const ramp = physics.world.createRigidBody(
+    const ramp = this.trackBody(
+      world.createRigidBody(
       RAPIER.RigidBodyDesc.fixed().setTranslation(0, rampY, rampZ).setRotation(rotation)
+      )
     );
     // Round the nose. A sharp lip shoves the hub sphere backward and folds the axle under the rails.
     const noseRadius = 0.03;
-    physics.world.createCollider(
+    world.createCollider(
       worldCollider(
         RAPIER.ColliderDesc.roundCuboid(
           half.x - noseRadius,
@@ -129,14 +159,16 @@ export class TrailScene {
   }
 
   /** Box about one tire radius tall, off the ramp line. Grip has to crest it. */
-  private createLedge(physics: PhysicsWorld): void {
+  private createLedge(world: RAPIER.World): void {
     const height = 0.22;
     const half = { x: 1.25, y: height / 2, z: 1.25 };
     const position = { x: 4.2, y: half.y, z: 2 };
-    const body = physics.world.createRigidBody(
+    const body = this.trackBody(
+      world.createRigidBody(
       RAPIER.RigidBodyDesc.fixed().setTranslation(position.x, position.y, position.z)
+      )
     );
-    physics.world.createCollider(worldCollider(filletedCuboid(half, 0.9)), body);
+    world.createCollider(worldCollider(filletedCuboid(half, 0.9)), body);
     const mesh = new THREE.Mesh(
       new THREE.BoxGeometry(half.x * 2, half.y * 2, half.z * 2),
       new THREE.MeshStandardMaterial({ color: 0x9a6b3f })
@@ -146,7 +178,7 @@ export class TrailScene {
   }
 
   /** Three-tier stairs up, then down, on −X. */
-  private createObstacleCourse(physics: PhysicsWorld): void {
+  private createObstacleCourse(world: RAPIER.World): void {
     const mat = new THREE.MeshStandardMaterial({ color: 0x7a5a3a });
     const halfX = 1.2;
     const halfZ = 0.65;
@@ -159,10 +191,12 @@ export class TrailScene {
     const noseQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 4);
     const addStep = (h: number, z: number, prevH: number): void => {
       const halfY = h / 2;
-      const body = physics.world.createRigidBody(
+      const body = this.trackBody(
+        world.createRigidBody(
         RAPIER.RigidBodyDesc.fixed().setTranslation(laneX, halfY, z)
+        )
       );
-      physics.world.createCollider(
+      world.createCollider(
         worldCollider(filletedCuboid({ x: halfX, y: halfY, z: halfZ }, 0.9)),
         body
       );
@@ -178,12 +212,14 @@ export class TrailScene {
         const faceZ = z + halfZ;
         const noseY = prevH + rise / 2;
         const noseZ = faceZ + rise / 2;
-        const noseBody = physics.world.createRigidBody(
+        const noseBody = this.trackBody(
+          world.createRigidBody(
           RAPIER.RigidBodyDesc.fixed()
             .setTranslation(laneX, noseY, noseZ)
             .setRotation({ x: noseQuat.x, y: noseQuat.y, z: noseQuat.z, w: noseQuat.w })
+          )
         );
-        physics.world.createCollider(
+        world.createCollider(
           worldCollider(filletedCuboid({ x: halfX, y: halfSlope, z: halfThick }, 0.95)),
           noseBody
         );
@@ -209,7 +245,7 @@ export class TrailScene {
    * Short rock lane on +X (mirrors stairs). Heights in tire radii (R=0.06):
    * entry ~0.5–1R, articulation ~1.5–2R, mid shelf ~2.5R with 45° nose.
    */
-  private createRockCourse(physics: PhysicsWorld): void {
+  private createRockCourse(world: RAPIER.World): void {
     const mat = new THREE.MeshStandardMaterial({ color: 0x6e6558 });
     const laneX = 6.5;
     const rock = (
@@ -221,7 +257,7 @@ export class TrailScene {
       const rot = euler
         ? new THREE.Quaternion().setFromEuler(new THREE.Euler(euler.x, euler.y, euler.z))
         : undefined;
-      this.addFixedCuboid(physics, { half, pos, rot, friction, material: mat, fillet: true });
+      this.addFixedCuboid(world, { half, pos, rot, friction, material: mat, fillet: true });
     };
 
     // Entry scatter (~0.5–1R) — staggered left/right toward −Z.
@@ -247,7 +283,7 @@ export class TrailScene {
       const halfSlope = (rise * Math.SQRT2) / 2;
       const noseQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 4);
       const faceZ = shelfZ + shelfHalf.z;
-      this.addFixedCuboid(physics, {
+      this.addFixedCuboid(world, {
         half: { x: shelfHalf.x, y: halfSlope, z: halfThick },
         pos: { x: laneX, y: rise / 2, z: faceZ + rise / 2 },
         rot: noseQuat,
@@ -270,11 +306,11 @@ export class TrailScene {
    * Sharp lip about 0.75 tire radii tall, off the ramp line (x = 10).
    * Headless crawl checks creep this edge instead of bouncing off or sticking.
    */
-  private createCrawlLip(physics: PhysicsWorld): void {
+  private createCrawlLip(world: RAPIER.World): void {
     const height = 0.045;
     const half = { x: 0.7, y: height / 2, z: 0.35 };
     const pos = { x: 10, y: half.y, z: -0.2 };
     const mat = new THREE.MeshStandardMaterial({ color: 0x8d7352 });
-    this.addFixedCuboid(physics, { half, pos, friction: 0.95, material: mat, fillet: true });
+    this.addFixedCuboid(world, { half, pos, friction: 0.95, material: mat, fillet: true });
   }
 }

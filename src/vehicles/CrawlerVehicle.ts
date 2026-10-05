@@ -19,7 +19,12 @@ import {
   type HubDriveState,
   type TireContactSnapshot,
 } from "./kitHubDrive.ts";
-import { applyHardFoldStop, holdAxleStation, projectAxleStation } from "./kitFoldStop.ts";
+import {
+  applyHardFoldStop,
+  holdAxleStation,
+  projectAxleStation,
+  projectFrontStation,
+} from "./kitFoldStop.ts";
 import { applyDistanceLinks } from "./kitDistanceLinks.ts";
 import { buildKitLocate, type KitLocateRuntime } from "./kitLocate.ts";
 import { kitDiagFlags } from "./kitDiagFlags.ts";
@@ -168,8 +173,14 @@ export class CrawlerVehicle {
   }
 
   syncMeshes(): void {
-    if (this.kit && Math.abs(this.hubDriveState.steer) < 0.2) {
-      projectAxleStation(this.chassisBody, this.kit.axles);
+    if (this.kit) {
+      // Straight: full station project. Steering: still pin front fore-aft so
+      // the steer axle cannot rubberband while it yaws.
+      if (Math.abs(this.hubDriveState.steer) < 0.2) {
+        projectAxleStation(this.chassisBody, this.kit.axles);
+      } else {
+        projectFrontStation(this.chassisBody, this.kit.axles);
+      }
     }
     syncRigidBodyToObject(this.chassisBody, this.chassisMesh);
     this.kit?.syncMeshes();
@@ -261,6 +272,32 @@ export class CrawlerVehicle {
     return this.kit;
   }
 
+  dispose(world: RAPIER.World, scene: THREE.Scene): void {
+    scene.remove(this.chassisMesh);
+    for (const wheel of this.wheels) {
+      scene.remove(wheel.mesh);
+    }
+    for (const shock of this.shockVisuals) {
+      scene.remove(shock.root);
+    }
+    if (this.locate) {
+      scene.remove(this.locate.frontShaftMesh);
+      scene.remove(this.locate.rearShaftMesh);
+    }
+    if (this.kit) {
+      for (const axle of this.kit.axles.values()) {
+        scene.remove(axle.mesh);
+        if (axle.body.isValid()) world.removeRigidBody(axle.body);
+      }
+      for (const link of this.kit.links) {
+        scene.remove(link.mesh);
+      }
+    }
+    if (this.chassisBody.isValid()) {
+      world.removeRigidBody(this.chassisBody);
+    }
+  }
+
   /** Lowest hub underside Y — settle gap metric. */
   minHubClearance(): number {
     if (!this.kit) return Number.NaN;
@@ -273,5 +310,23 @@ export class CrawlerVehicle {
       min = Math.min(min, hub.y - wheel.kitWheel.radius);
     }
     return min;
+  }
+
+  setLockedInPlace(locked: boolean): void {
+    const bodies: RAPIER.RigidBody[] = [this.chassisBody];
+    if (this.kit) {
+      for (const axle of this.kit.axles.values()) {
+        bodies.push(axle.body);
+      }
+    }
+
+    for (const body of bodies) {
+      body.lockTranslations(locked, true);
+      body.lockRotations(locked, true);
+      if (locked) {
+        body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+        body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      }
+    }
   }
 }

@@ -6,7 +6,8 @@ import * as THREE from "three";
 import { loadStockRig } from "../src/data/loadRig.ts";
 import { PhysicsWorld } from "../src/physics/PhysicsWorld.ts";
 import { CrawlerVehicle } from "../src/vehicles/CrawlerVehicle.ts";
-import { TrailScene } from "../src/world/TrailScene.ts";
+import { createWorldScene } from "../src/world/sceneFactory.ts";
+import type { WorldScene } from "../src/world/WorldScene.ts";
 import type { DriveInput } from "../src/input/Input.ts";
 import type { RigDef } from "../src/vehicles/types.ts";
 import { forEachSubstep } from "../src/game/Time.ts";
@@ -16,7 +17,7 @@ export const DT = 1 / 60;
 
 export type Harness = {
   physics: PhysicsWorld;
-  trail: TrailScene;
+  trail: WorldScene;
   vehicle: CrawlerVehicle;
   rig: RigDef;
 };
@@ -27,7 +28,8 @@ export async function createHarness(): Promise<Harness> {
   const physics = PhysicsWorld.create();
   physics.world.integrationParameters.numSolverIterations = 28;
   physics.world.integrationParameters.normalizedAllowedLinearError = 0.0005;
-  const trail = new TrailScene(physics, rig.spawn);
+  const trail = createWorldScene("trail-classic", rig.spawn);
+  trail.activate({ physics, defaultSpawn: rig.spawn });
   const vehicle = new CrawlerVehicle(physics, trail.scene, rig);
   return { physics, trail, vehicle, rig };
 }

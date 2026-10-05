@@ -8,6 +8,7 @@
     "links": "scx101-4link",
     "shocks": "scx101-coil"
   },
+  "initialSceneId": "trail-classic",
   "spawn": {
     "x": 0,
     "y": 0.22,
@@ -513,7 +514,16 @@
       "steerAngle": 0.6,
       "maxAccel": 14,
       "minNormalY": 0.14,
-      "minUpright": 0.28
+      "minUpright": 0.28,
+      "idleThrottleEps": 0.04,
+      "idleEnterSpeed": 0.03,
+      "idleExitSpeed": 0.07,
+      "idlePlanarEnterSpeed": 0.12,
+      "idlePlanarExitSpeed": 0.24,
+      "idleTorqueScale": 0.28,
+      "idleForceScale": 0.34,
+      "idleMuScale": 0.72,
+      "idleAccelScale": 0.4
     },
     "tire": {
       "radialK": 1600,
