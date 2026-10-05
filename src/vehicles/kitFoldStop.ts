@@ -45,8 +45,10 @@ export function applyHardFoldStop(
   scratchQ.set(cr.x, cr.y, cr.z, cr.w);
   scratchInv.copy(scratchQ).invert();
   scratchUp.set(0, 1, 0).applyQuaternion(scratchQ);
-  // Stay armed on climb attitudes; only bail when nearly inverted.
-  if (scratchUp.y < 0.35) return;
+  // Stay armed through steep climb attitudes. The old guard disabled the fold stop
+  // while the chassis was still only pitched over, which let the axle fold under
+  // and the rig roll inverted on ramp entries.
+  if (scratchUp.y < -0.2) return;
 
   scratchFwd.set(0, 0, -1).applyQuaternion(scratchQ);
   const upDot = scratchFwd.dot(scratchUp);
@@ -234,9 +236,9 @@ export function holdAxleStation(
     scratchLocal.set(at.x - ct.x, at.y - ct.y, at.z - ct.z).applyQuaternion(scratchInv);
     const err = scratchLocal.z - axle.restLocal.z;
     // Front bites earlier — less free rubberband before the station spring holds.
-    const deadband = axle.id === "front" ? 0.012 : 0.018;
+    const deadband = axle.id === "front" ? 0.010 : 0.015;
     if (Math.abs(err) < deadband) continue;
-    const force = clamp(-err * 1600, -180, 180);
+    const force = clamp(-err * 1800, -210, 210);
     const j = force * dt;
     axle.body.applyImpulse(
       { x: scratchFwd.x * j, y: scratchFwd.y * j, z: scratchFwd.z * j },

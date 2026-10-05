@@ -52,6 +52,7 @@ export type TireContactSnapshot = {
 export type HubDriveState = {
   commandSpeed: number;
   steer: number;
+  dragHold: boolean;
   omega: Map<string, number>;
   deflection: Map<string, number[]>;
   contacts: TireContactSnapshot[];
@@ -61,6 +62,7 @@ export function createHubDriveState(): HubDriveState {
   return {
     commandSpeed: 0,
     steer: 0,
+    dragHold: false,
     omega: new Map(),
     deflection: new Map(),
     contacts: [],
@@ -70,6 +72,7 @@ export function createHubDriveState(): HubDriveState {
 export function resetHubDriveState(state: HubDriveState): void {
   state.commandSpeed = 0;
   state.steer = 0;
+  state.dragHold = false;
   state.omega.clear();
   state.deflection.clear();
   state.contacts.length = 0;
@@ -312,6 +315,29 @@ export function applyHubDrive(
 
   const drive = kit.drive;
   const tire = kit.tire;
+  const idleEps = drive.idleThrottleEps ?? 0.04;
+  const idleEnterSpeed = drive.idleEnterSpeed ?? 0.03;
+  const idleExitSpeed = drive.idleExitSpeed ?? 0.07;
+  const idlePlanarEnterSpeed = drive.idlePlanarEnterSpeed ?? 0.12;
+  const idlePlanarExitSpeed = drive.idlePlanarExitSpeed ?? 0.24;
+  const planarSpeed = Math.hypot(chassis.linvel().x, chassis.linvel().z);
+
+  if (state.dragHold) {
+    if (
+      Math.abs(input.throttle) > idleEps ||
+      Math.abs(state.commandSpeed) > idleExitSpeed ||
+      planarSpeed > idlePlanarExitSpeed
+    ) {
+      state.dragHold = false;
+    }
+  } else if (
+    Math.abs(input.throttle) <= idleEps &&
+    Math.abs(state.commandSpeed) <= idleEnterSpeed &&
+    planarSpeed <= idlePlanarEnterSpeed
+  ) {
+    state.dragHold = true;
+  }
+
   if (drive.steerRate && drive.steerRate > 0) {
     const steerStep = drive.steerRate * dt;
     state.steer += clamp(input.steer - state.steer, -steerStep, steerStep);
@@ -325,9 +351,27 @@ export function applyHubDrive(
   // chassis naturally yaws without feeling like a forced point-turn or a visible speed brake.
   const steerAmount = Math.abs(state.steer);
   const turnDrag = 1 - Math.min(0.12, steerAmount * 0.1);
-  const desired = input.throttle * rig.maxSpeed * turnDrag;
-  const slew = drive.maxAccel * dt;
-  state.commandSpeed += clamp(desired - state.commandSpeed, -slew, slew);
+  const idleTorqueScale = drive.idleTorqueScale ?? 0.28;
+  const idleForceScale = drive.idleForceScale ?? 0.34;
+  const idleMuScale = drive.idleMuScale ?? 0.72;
+  const idleAccelScale = drive.idleAccelScale ?? 0.4;
+  let desired = input.throttle * rig.maxSpeed * turnDrag;
+  let driveTorque = drive.driveTorque;
+  let maxForce = drive.maxForce;
+  let mu = drive.mu;
+  let maxAccel = drive.maxAccel;
+
+  if (state.dragHold) {
+    desired = 0;
+    state.commandSpeed = 0;
+    driveTorque *= idleTorqueScale;
+    maxForce *= idleForceScale;
+    mu *= idleMuScale;
+    maxAccel *= idleAccelScale;
+  } else {
+    const slew = drive.maxAccel * dt;
+    state.commandSpeed += clamp(desired - state.commandSpeed, -slew, slew);
+  }
 
   const rot = chassis.rotation();
   q.set(rot.x, rot.y, rot.z, rot.w);
@@ -410,17 +454,17 @@ export function applyHubDrive(
   }
   for (const [axleId, group] of byAxle) {
     const prev = state.omega.get(axleId) ?? 0;
-    const wantDrive = Math.abs(state.commandSpeed) > 0.08;
+    const wantDrive = state.dragHold || Math.abs(state.commandSpeed) > 0.08;
     const next = driveOn && wantDrive
       ? solveAxle(
           chassis,
           group,
           prev,
           state.commandSpeed,
-          drive.driveTorque,
-          drive.mu,
-          drive.maxForce,
-          drive.maxAccel,
+          driveTorque,
+          mu,
+          maxForce,
+          maxAccel,
           dt
         )
       : prev * Math.exp(-dt / 0.35);
@@ -443,6 +487,19 @@ export function applyHubDrive(
   }
 
   capPlanarSpeed(chassis, rig.maxSpeed);
+  if (state.dragHold) {
+    const vel = chassis.linvel();
+    const planar = Math.hypot(vel.x, vel.z);
+    if (planar < idlePlanarExitSpeed) {
+      const damp = Math.max(0, 1 - dt * 12);
+      chassis.setLinvel({ x: vel.x * damp, y: vel.y, z: vel.z * damp }, true);
+      if (planar < 0.02) {
+        chassis.setLinvel({ x: 0, y: vel.y, z: 0 }, true);
+      }
+    } else {
+      state.dragHold = false;
+    }
+  }
   if (Math.abs(state.commandSpeed) > 0.08 && Math.abs(state.steer) < 0.2) {
     const capped = chassis.linvel();
     for (const axle of axles.values()) {

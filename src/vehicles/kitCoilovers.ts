@@ -144,21 +144,33 @@ export function applyCoilovers(
     const v0 = chassis.velocityAtPoint(p0);
     const v1 = axle.body.velocityAtPoint(p1);
     const closingSpeed = (v1.x - v0.x) * ux + (v1.y - v0.y) * uy + (v1.z - v0.z) * uz;
+    const dampedSpeed = Math.max(-2.5, Math.min(2.5, closingSpeed));
+    const extLimit = c.maxTravel * 0.75;
+    const suspendedAir = compression < -extLimit && closingSpeed < -0.7;
 
     let force = 0;
     if (compression > 0) {
-      force = c.springK * compression + c.preload + c.damperC * closingSpeed;
+      force = c.springK * compression + c.preload + c.damperC * dampedSpeed;
       const bumpDepth = compression - c.maxTravel;
       if (bumpDepth > 0) {
         const bump =
           c.springK * 14 * bumpDepth +
           c.springK * 180 * bumpDepth * bumpDepth +
-          c.damperC * 3 * Math.max(0, closingSpeed);
+          c.damperC * 3 * Math.max(0, dampedSpeed);
         force += bump;
       }
     } else {
       const taper = Math.max(0, 1 + compression / Math.max(1e-3, c.restLength * 0.25));
-      force = c.preload * taper + c.damperC * 0.35 * closingSpeed;
+      // When the axle is unloading off an edge, it can briefly develop a huge
+      // negative closing speed. That should not inject a large negative spring force
+      // back into the chassis; only limited rebound is allowed while the wheel is still
+      // hanging airborne. Once the support is lost, the shock path must stop acting like
+      // a live contact patch.
+      const rebound = Math.max(0, -dampedSpeed);
+      force = c.preload * taper + c.damperC * 0.18 * rebound;
+      if (suspendedAir) {
+        force *= 0.12;
+      }
     }
     const cap = compression > c.maxTravel ? c.bumpForceCap : c.forceCap;
     if (force > cap) force = cap;
@@ -203,27 +215,16 @@ export function applyCoilovers(
     }
   }
 
-  // Chassis-up projection of shock-axis force (Newton pair). Full shock-axis
-  // seeds coils+drive axle tumble (foldDiag A ~step 15). Climb uses hub Coulomb
-  // / face boost — not shock fore-aft.
-  const cr = chassis.rotation();
-  scratchQ.set(cr.x, cr.y, cr.z, cr.w);
-  scratchV.set(0, 1, 0).applyQuaternion(scratchQ);
-  const upLen = scratchV.length();
-  const upx = upLen > 1e-8 ? scratchV.x / upLen : 0;
-  const upy = upLen > 1e-8 ? scratchV.y / upLen : 1;
-  const upz = upLen > 1e-8 ? scratchV.z / upLen : 0;
-
+  // The regression was here: projecting the shock force onto chassis-up turned a
+  // spring force into a direct body-pitch impulse. Keep the force on the true
+  // mount-to-mount axis and let the link geometry / hub drive carry the support.
   for (const s of samples) {
     const impulse = s.force * dt;
-    const along = s.ux * upx + s.uy * upy + s.uz * upz;
-    // Always chassis-up: full shock-axis under throttle re-seeds axle fold
-    // (foldDiag A). Lip climb is hub Coulomb / face boost, not shock fore-aft.
-    const ux = upx * along;
-    const uy = upy * along;
-    const uz = upz * along;
-    chassis.applyImpulseAtPoint({ x: ux * impulse, y: uy * impulse, z: uz * impulse }, s.p0, true);
-    s.axle.body.applyImpulseAtPoint({ x: -ux * impulse, y: -uy * impulse, z: -uz * impulse }, s.p1, true);
+    const fx = s.ux * impulse;
+    const fy = s.uy * impulse;
+    const fz = s.uz * impulse;
+    chassis.applyImpulseAtPoint({ x: fx, y: fy, z: fz }, s.p0, true);
+    s.axle.body.applyImpulseAtPoint({ x: -fx, y: -fy, z: -fz }, s.p1, true);
   }
 }
 

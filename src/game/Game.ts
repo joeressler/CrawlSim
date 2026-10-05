@@ -56,7 +56,7 @@ export class Game {
     this.vehicle = this.createVehicleForScene(this.activeScene);
     this.applyGarageDisplayPose();
     this.vehicle.setLockedInPlace(this.sceneId === "garage");
-    this.vehicle.applyGarageColors(this.garageConfig.linkColor, this.garageConfig.servoColor);
+    this.vehicle.applyGarageColors(this.garageConfig.linkColor, this.garageConfig.shockColor, this.garageConfig.servoColor);
     this.input = new Input();
     this.cameraRig = new CameraRig(this.baseRig.cameraOffset);
     this.applyCameraPreset(this.sceneId);
@@ -96,7 +96,7 @@ export class Game {
     this.vehicle = this.createVehicleForScene(this.activeScene);
     this.applyGarageDisplayPose();
     this.vehicle.setLockedInPlace(this.sceneId === "garage");
-    this.vehicle.applyGarageColors(this.garageConfig.linkColor, this.garageConfig.servoColor);
+    this.vehicle.applyGarageColors(this.garageConfig.linkColor, this.garageConfig.shockColor, this.garageConfig.servoColor);
     this.applyCameraPreset(this.sceneId);
     this.sceneMenu.setScene(this.sceneId);
     this.garageUi.setVisible(this.sceneId === "garage");
@@ -185,7 +185,7 @@ export class Game {
     this.vehicle = this.createVehicleForScene(this.activeScene);
     this.applyGarageDisplayPose();
     this.vehicle.setLockedInPlace(this.sceneId === "garage");
-    this.vehicle.applyGarageColors(this.garageConfig.linkColor, this.garageConfig.servoColor);
+    this.vehicle.applyGarageColors(this.garageConfig.linkColor, this.garageConfig.shockColor, this.garageConfig.servoColor);
     this.vehicle.syncMeshes();
     this.cameraRig.follow(this.vehicle.chassisPosition());
     this.accumulator = 0;

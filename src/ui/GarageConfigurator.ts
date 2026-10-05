@@ -27,6 +27,7 @@ export class GarageConfigurator {
   private readonly motorSummary: HTMLDivElement;
   private readonly servoSummary: HTMLDivElement;
   private readonly linkColorInput: HTMLInputElement;
+  private readonly shockColorInput: HTMLInputElement;
   private readonly servoColorInput: HTMLInputElement;
 
   constructor(host: HTMLElement, initialConfig: GarageConfig, callbacks: Callbacks) {
@@ -47,6 +48,7 @@ export class GarageConfigurator {
     this.servoSelect = this.buildSelect("Steering Servo", SERVO_OPTIONS.map((o) => ({ value: o.id, label: o.label })));
     this.servoSummary = this.buildSummary();
     this.linkColorInput = this.buildColor("Link Color");
+    this.shockColorInput = this.buildColor("Shock Color");
     this.servoColorInput = this.buildColor("Servo Color");
 
     this.setConfig(initialConfig);
@@ -69,6 +71,7 @@ export class GarageConfigurator {
       emit();
     });
     this.linkColorInput.addEventListener("input", emit);
+    this.shockColorInput.addEventListener("input", emit);
     this.servoColorInput.addEventListener("input", emit);
 
     host.appendChild(this.root);
@@ -85,6 +88,7 @@ export class GarageConfigurator {
     this.motorSelect.value = safe.motorProfileId;
     this.servoSelect.value = safe.servoProfileId;
     this.linkColorInput.value = safe.linkColor;
+    this.shockColorInput.value = safe.shockColor;
     this.servoColorInput.value = safe.servoColor;
     this.shockSummary.textContent = getSelectedOptionSummary(SHOCK_OPTIONS, safe.shockProfileId);
     this.wheelSummary.textContent = getSelectedOptionSummary(WHEEL_OPTIONS, safe.wheelProfileId);
@@ -99,6 +103,7 @@ export class GarageConfigurator {
       motorProfileId: this.motorSelect.value as MotorProfileId,
       servoProfileId: this.servoSelect.value as ServoProfileId,
       linkColor: this.linkColorInput.value,
+      shockColor: this.shockColorInput.value,
       servoColor: this.servoColorInput.value,
     };
   }

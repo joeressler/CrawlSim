@@ -330,8 +330,9 @@ export class CrawlerVehicle {
     }
   }
 
-  applyGarageColors(linkColor: string, servoColor: string): void {
+  applyGarageColors(linkColor: string, shockColor: string, servoColor: string): void {
     const link = new THREE.Color(linkColor);
+    const shock = new THREE.Color(shockColor);
     const servo = new THREE.Color(servoColor);
 
     this.chassisMesh.traverse((obj) => {
@@ -356,6 +357,19 @@ export class CrawlerVehicle {
         material.color.copy(link);
         mesh.material = material;
       }
+    }
+
+    for (const shockVisual of this.shockVisuals) {
+      shockVisual.root.traverse((obj) => {
+        const mesh = obj as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const baseMaterial = mesh.material;
+        if (!(baseMaterial instanceof THREE.MeshStandardMaterial)) return;
+        if (mesh.name === "shock_shaft") return;
+        const material = baseMaterial.clone();
+        material.color.copy(shock);
+        mesh.material = material;
+      });
     }
   }
 }

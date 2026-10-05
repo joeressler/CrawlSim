@@ -11,6 +11,7 @@ export type GarageConfig = {
   motorProfileId: MotorProfileId;
   servoProfileId: ServoProfileId;
   linkColor: string;
+  shockColor: string;
   servoColor: string;
 };
 
@@ -20,6 +21,7 @@ export const DEFAULT_GARAGE_CONFIG: GarageConfig = {
   motorProfileId: "stock",
   servoProfileId: "stock",
   linkColor: "#b08d57",
+  shockColor: "#1e4d7a",
   servoColor: "#d14f3f",
 };
 
@@ -129,11 +131,14 @@ function sanitizeConfig(input: Partial<GarageConfig>): GarageConfig {
   const linkColor = typeof input.linkColor === "string" && isHexColor(input.linkColor)
     ? input.linkColor
     : DEFAULT_GARAGE_CONFIG.linkColor;
+  const shockColor = typeof input.shockColor === "string" && isHexColor(input.shockColor)
+    ? input.shockColor
+    : DEFAULT_GARAGE_CONFIG.shockColor;
   const servoColor = typeof input.servoColor === "string" && isHexColor(input.servoColor)
     ? input.servoColor
     : DEFAULT_GARAGE_CONFIG.servoColor;
 
-  return { shockProfileId, wheelProfileId, motorProfileId, servoProfileId, linkColor, servoColor };
+  return { shockProfileId, wheelProfileId, motorProfileId, servoProfileId, linkColor, shockColor, servoColor };
 }
 
 export function loadGarageConfig(): GarageConfig {
