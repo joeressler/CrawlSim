@@ -6,6 +6,11 @@
  * tire does not creep. Forces land on the axle at the hub; distance links carry
  * them to the chassis. A small wrap torque is all the housing is allowed to wind.
  *
+ * Housing planar sync runs before Coulomb so soft rods do not stretch under
+ * drive without wiping lateral hub grip (post-solve copy caused rock scrub).
+ * Drive force stays on the crawl accel budget; Coulomb ellipse uses a slightly
+ * wider grip budget so throttle does not starve side stiction on obstacles.
+ *
  * The radial patch (tirePatch.ts) is what climbs a lip. There is no face-claw,
  * impact hold, or chassis linvel snap — those fought the rigid hub sphere.
  *
@@ -29,6 +34,12 @@ const MOTOR_KP = 160;
 const EXPLODE_SPEED = 8;
 const WRAP_FRACTION = 0.04;
 const WRAP_TORQUE_CAP = 6;
+/**
+ * Coulomb grip may exceed the crawl accel budget. maxAccel caps motor pull so a
+ * soft link does not rip, but lateral/obstacle stiction needs more room than the
+ * per-tire accel share (≈12 N) or the truck slides off rocks at speed.
+ */
+const GRIP_ACCEL_MUL = 1.35;
 
 const AXLE_YAW_K = 18;
 const AXLE_YAW_C = 7.2;
@@ -93,6 +104,7 @@ type WheelPlant = {
   sz: number;
   slip: number;
   accLong: number;
+  accLat: number;
 };
 
 const q = new THREE.Quaternion();
@@ -217,8 +229,10 @@ function solveAxle(
   const radius = plants[0]?.def.radius ?? 0.06;
   if (!(radius > 0)) return omega;
 
-  // Share the crawl accel budget across four tires so a deflection spike cannot rip the links.
+  // Crawl accel budget caps motor pull so a deflection spike cannot rip soft links.
+  // Coulomb stiction uses a wider budget so planted tires can still hold laterally.
   const accelForce = (Math.max(0, maxAccel) * Math.max(chassis.mass(), 0.5)) / 4;
+  const gripAccel = accelForce * GRIP_ACCEL_MUL;
   let traction = 0;
   for (const plant of planted) {
     traction += Math.min(mu * plant.patch.fn, maxForce, accelForce) * radius;
@@ -244,11 +258,12 @@ function solveAxle(
       // ferry the drive force (a soft rod was eating it).
       const invCombined = 1 / (1 / invAxle + 1 / invChassis);
       const wSlip = invCombined + (radius * radius) / SPIN_INERTIA;
-      const limit = Math.min(mu * plant.patch.fn, maxForce, accelForce) * dt;
+      const gripLimit = Math.min(mu * plant.patch.fn, maxForce, gripAccel) * dt;
+      const driveLimit = Math.min(gripLimit, accelForce * dt);
       const j = clamp(
         (-slip / wSlip) * FRICTION_RELAX,
-        -limit - plant.accLong,
-        limit - plant.accLong
+        -driveLimit - plant.accLong,
+        driveLimit - plant.accLong
       );
       if (j !== 0) {
         const shareAxle = invCombined / invAxle;
@@ -277,8 +292,10 @@ function solveAxle(
       const v2 = axleBody.velocityAtPoint({ x: plant.hubX, y: plant.hubY, z: plant.hubZ });
       const vLat = v2.x * plant.sx + v2.y * plant.sy + v2.z * plant.sz;
       const invLat = invMassAlong(axleBody, plant.hubX, plant.hubY, plant.hubZ, plant.sx, plant.sy, plant.sz);
-      const used = Math.abs(plant.accLong);
-      const latRoom = Math.sqrt(Math.max(0, limit * limit - used * used));
+      const used = Math.hypot(plant.accLong, plant.accLat);
+      // Drive long is capped by accelForce while gripLimit is wider, so throttle
+      // no longer collapses latRoom to ~0 on obstacles.
+      const latRoom = Math.sqrt(Math.max(0, gripLimit * gripLimit - used * used));
       const jLat = clamp((-vLat / invLat) * FRICTION_RELAX, -latRoom, latRoom);
       if (jLat !== 0) {
         axleBody.applyImpulseAtPoint(
@@ -286,6 +303,7 @@ function solveAxle(
           { x: plant.hubX, y: plant.hubY, z: plant.hubZ },
           true
         );
+        plant.accLat += jLat;
       }
     }
   }
@@ -442,7 +460,19 @@ export function applyHubDrive(
       sz,
       slip: 0,
       accLong: 0,
+      accLat: 0,
     });
+  }
+
+  // Sync housing planar vel to chassis BEFORE Coulomb so soft rods do not stretch
+  // under drive — but do it before the friction solve. The old post-solve copy wiped
+  // lateral hub impulses and let the truck scrub off obstacles at speed.
+  if (Math.abs(state.commandSpeed) > 0.08 && Math.abs(state.steer) < 0.2) {
+    const capped = chassis.linvel();
+    for (const axle of axles.values()) {
+      const av = axle.body.linvel();
+      axle.body.setLinvel({ x: capped.x, y: av.y, z: capped.z }, true);
+    }
   }
 
   const driveOn = upright >= drive.minUpright;
@@ -498,14 +528,6 @@ export function applyHubDrive(
       }
     } else {
       state.dragHold = false;
-    }
-  }
-  if (Math.abs(state.commandSpeed) > 0.08 && Math.abs(state.steer) < 0.2) {
-    const capped = chassis.linvel();
-    for (const axle of axles.values()) {
-      const av = axle.body.linvel();
-      // While driving, keep the housing from lagging in the plane. Heave stays free.
-      axle.body.setLinvel({ x: capped.x, y: av.y, z: capped.z }, true);
     }
   }
   explodeCap(chassis);
