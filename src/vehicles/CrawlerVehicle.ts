@@ -268,6 +268,14 @@ export class CrawlerVehicle {
     return this.chassisMesh.position;
   }
 
+  /** World yaw (YXZ) of the chassis — camera follow heading. */
+  chassisYaw(): number {
+    const r = this.chassisBody.rotation();
+    const q = new THREE.Quaternion(r.x, r.y, r.z, r.w);
+    const e = new THREE.Euler().setFromQuaternion(q, "YXZ");
+    return e.y;
+  }
+
   kitSuspension(): KitSuspensionRuntime | null {
     return this.kit;
   }

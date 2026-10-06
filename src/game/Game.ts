@@ -75,7 +75,7 @@ export class Game {
     });
     this.garageUi.setVisible(this.sceneId === "garage");
 
-    this.cameraRig.follow(this.vehicle.chassisPosition());
+    this.cameraRig.snapTo(this.vehicle.chassisPosition(), this.vehicle.chassisYaw());
 
     addEventListener("resize", () => {
       this.cameraRig.onResize();
@@ -101,7 +101,7 @@ export class Game {
     this.sceneMenu.setScene(this.sceneId);
     this.garageUi.setVisible(this.sceneId === "garage");
     this.vehicle.syncMeshes();
-    this.cameraRig.follow(this.vehicle.chassisPosition());
+    this.cameraRig.snapTo(this.vehicle.chassisPosition(), this.vehicle.chassisYaw());
     this.accumulator = 0;
   }
 
@@ -129,7 +129,7 @@ export class Game {
         }
         if (steps === MAX_SUBSTEPS) this.accumulator = 0;
         this.vehicle.syncMeshes();
-        this.cameraRig.follow(this.vehicle.chassisPosition());
+        this.cameraRig.follow(this.vehicle.chassisPosition(), this.vehicle.chassisYaw());
       }
       this.renderer.render(this.activeScene.scene, this.cameraRig.camera);
       requestAnimationFrame(loop);
@@ -140,6 +140,8 @@ export class Game {
   reset(): void {
     this.vehicle.reset();
     this.applyGarageDisplayPose();
+    this.vehicle.syncMeshes();
+    this.cameraRig.snapTo(this.vehicle.chassisPosition(), this.vehicle.chassisYaw());
   }
 
   private sceneContext() {
@@ -187,7 +189,7 @@ export class Game {
     this.vehicle.setLockedInPlace(this.sceneId === "garage");
     this.vehicle.applyGarageColors(this.garageConfig.linkColor, this.garageConfig.shockColor, this.garageConfig.servoColor);
     this.vehicle.syncMeshes();
-    this.cameraRig.follow(this.vehicle.chassisPosition());
+    this.cameraRig.snapTo(this.vehicle.chassisPosition(), this.vehicle.chassisYaw());
     this.accumulator = 0;
   }
 }

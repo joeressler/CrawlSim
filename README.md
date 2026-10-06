@@ -1,4 +1,4 @@
-﻿# CrawlSim
+# CrawlSim
 
 RC rock-crawler vertical slice: box chassis, four wheels, ground + ramp, WASD drive, R reset.
 
@@ -32,7 +32,7 @@ Runtime scene switching is now handled by a world scene contract and a small fac
 Current scenes in this pass:
 
 - `trail-classic`: the original obstacle course and tuning baseline
-- `trail-technical`: alternate trail layout for scene-switch smoke and future variants
+- `trail-technical`: longer forward course (drive toward -Z) with sequential obstacles — washboard, ledge, articulation gate, ramp, steps, off-camber, finish shelf
 - `garage`: display bay scene with workshop props and a dedicated spotlight on the RC for presentation and future rig/parts workflows
 
 Out of scope in this pass:
